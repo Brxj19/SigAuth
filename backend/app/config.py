@@ -49,6 +49,13 @@ class Settings(BaseSettings):
     ACCESS_TOKENS_ENABLED: bool = True
     REFRESH_TOKENS_ENABLED: bool = True
 
+    # Billing / payments
+    PAYMENTS_PROVIDER: str = "demo"
+    BILLING_CURRENCY: str = "INR"
+    SUBSCRIPTION_CYCLE_DAYS: int = 30
+    RAZORPAY_KEY_ID: str = ""
+    RAZORPAY_KEY_SECRET: str = ""
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

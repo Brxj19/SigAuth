@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import update, select, func
 
+from app.branding import PRODUCT_NAME
 from app.dependencies import get_db, get_redis, require_permission
 from app.models.organization import Organization
 from app.models.user import User
@@ -202,7 +203,7 @@ async def create_user_endpoint(
         db=db,
         user=user,
         event_key="account.created",
-        title="Welcome to Identity Admin",
+        title=f"Welcome to {PRODUCT_NAME}",
         message="An administrator created your account. Complete setup using the invitation link sent to your email.",
     )
     await send_admin_activity_notification(

@@ -4,6 +4,7 @@ from typing import Optional
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.branding import PRODUCT_NAME
 from app.config import settings
 from app.utils.crypto_utils import generate_email_verification_token
 from app.services.email_templates import (
@@ -74,7 +75,7 @@ async def send_invitation_email(
     await queue_email(
         db=db,
         to_email=email,
-        subject="You're invited to Identity Admin",
+        subject=f"You're invited to {PRODUCT_NAME}",
         html_body=html_body,
         event_key="account.created",
         org_id=org_id,

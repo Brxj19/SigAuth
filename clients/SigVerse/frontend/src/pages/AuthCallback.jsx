@@ -30,7 +30,7 @@ export default function AuthCallback() {
   return (
     <div className="spinner-overlay">
       <div className="spinner"><div className="spinner-ring"></div></div>
-      <p className="spinner-text">Authenticating with Identity Admin...</p>
+      <p className="spinner-text">Authenticating with SigAuth...</p>
     </div>
   );
 }

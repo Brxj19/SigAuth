@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from '../branding';
 import AuthParticleCanvas from '../components/AuthParticleCanvas';
 import {
   ApplicationsIcon,
@@ -71,8 +72,8 @@ export default function Home() {
         <Link to="/" className="flex items-center gap-3 text-slate-900">
           <ProductMark className="h-11 w-11" />
           <div>
-            <div className="landing-eyebrow">Mini Okta</div>
-            <div className="text-sm text-slate-600">Identity infrastructure for internal platforms</div>
+            <div className="landing-eyebrow">{PRODUCT_NAME}</div>
+            <div className="text-sm text-slate-600">{PRODUCT_TAGLINE}</div>
           </div>
         </Link>
 
@@ -96,7 +97,7 @@ export default function Home() {
             </h1>
 
             <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-600 lg:text-xl">
-              Mini Okta brings together OIDC, user lifecycle flows, group-aware access, and a practical admin console in one compact platform that still feels serious.
+              {PRODUCT_NAME} brings together OIDC, user lifecycle flows, group-aware access, and a practical admin console in one compact platform that still feels serious.
             </p>
 
             <div className="mt-8 flex flex-col gap-4 sm:flex-row">
@@ -211,12 +212,12 @@ export default function Home() {
         <section className="mx-auto max-w-7xl px-6 py-4 lg:px-10 lg:py-8">
           <div className="landing-architecture-panel">
             <div>
-              <div className="landing-eyebrow">What Mini Okta Gives You</div>
+              <div className="landing-eyebrow">What {PRODUCT_NAME} Gives You</div>
               <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-900 lg:text-4xl">
                 A compact identity platform with real-world IAM building blocks.
               </h2>
               <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
-                Mini Okta is designed for builders who need a practical identity layer without enterprise platform overhead.
+                {PRODUCT_NAME} is designed for builders who need a practical identity layer without enterprise platform overhead.
                 It combines authentication, authorization, and admin operations so client apps can integrate once and scale with confidence.
               </p>
             </div>
@@ -234,7 +235,7 @@ export default function Home() {
               <div className="landing-process-card">
                 <h3 className="text-lg font-semibold text-slate-900">How The Flow Works</h3>
                 <div className="mt-4 grid gap-3">
-                  <div className="landing-flow-step"><span>01</span> Client app redirects to Mini Okta authorize endpoint with PKCE.</div>
+                  <div className="landing-flow-step"><span>01</span> Client app redirects to the {PRODUCT_NAME} authorize endpoint with PKCE.</div>
                   <div className="landing-flow-step"><span>02</span> User signs in, policies are evaluated, and consent/access checks run.</div>
                   <div className="landing-flow-step"><span>03</span> Tokens are returned to the client app for session establishment.</div>
                   <div className="landing-flow-step"><span>04</span> App enforces roles and permissions from user/group assignments.</div>
@@ -255,7 +256,7 @@ export default function Home() {
         <section className="mx-auto max-w-7xl px-6 pb-20 pt-6 lg:px-10 lg:pb-28">
           <div className="landing-cta-panel">
             <div className="max-w-2xl">
-              <div className="landing-eyebrow text-slate-700">Built for your Mini Okta project</div>
+              <div className="landing-eyebrow text-slate-700">Built for your {PRODUCT_NAME} rollout</div>
               <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-900 lg:text-4xl">
                 A homepage that explains the product before the login form has to.
               </h2>

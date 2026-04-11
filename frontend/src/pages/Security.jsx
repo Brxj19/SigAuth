@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { PRODUCT_NAME } from '../branding';
 import PageHeader from '../components/PageHeader';
 import Card from '../components/Card';
 import { AuditIcon, BellIcon, SecurityIcon } from '../components/Icons';
@@ -41,7 +42,7 @@ export default function Security() {
           </div>
         </Card>
 
-        <Card title="Controls" subtitle="Security controls already implemented in this Mini Okta build.">
+        <Card title="Controls" subtitle={`Security controls already implemented in this ${PRODUCT_NAME} build.`}>
           <ul className="space-y-2 text-sm text-gray-700">
             {implementedControls.map((item) => (
               <li key={item} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">

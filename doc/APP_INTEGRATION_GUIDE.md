@@ -1,6 +1,6 @@
-# Mini-Okta App Integration Guide
+# SigAuth App Integration Guide
 
-This guide is for external developers integrating their application with this IdP (Mini-Okta).
+This guide is for external developers integrating their application with SigAuth.
 
 It covers:
 - how to register an application

@@ -1,4 +1,5 @@
 import React from 'react';
+import { PRODUCT_NAME } from '../branding';
 import productLogo from '../assets/logo.png';
 
 function createIcon(path, viewBox = '0 0 24 24') {
@@ -170,6 +171,6 @@ export const SparkIcon = createIcon(
 
 export function ProductMark({ className = 'h-8 w-8' }) {
   return (
-    <img src={productLogo} alt="Mini Okta logo" className={className} />
+    <img src={productLogo} alt={`${PRODUCT_NAME} logo`} className={className} />
   );
 }

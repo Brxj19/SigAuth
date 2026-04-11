@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
+from app.branding import PLATFORM_DESCRIPTION, PRODUCT_NAME
 from app.config import settings
 from app.database import engine, async_session_factory
 from app.redis_client import get_redis_pool, close_redis_pool
@@ -31,8 +32,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Internal Identity Provider",
-    description="A centralised Identity Provider with OIDC, RBAC, and multi-tenant management",
+    title=PRODUCT_NAME,
+    description=PLATFORM_DESCRIPTION,
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/api/docs",
@@ -86,7 +87,7 @@ app.include_router(health.router)
 @app.get("/")
 async def root():
     return {
-        "name": "Internal Identity Provider",
+        "name": PRODUCT_NAME,
         "version": "1.0.0",
         "developer_docs": "/docs",
         "api_docs": "/api/docs",

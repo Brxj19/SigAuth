@@ -2,6 +2,8 @@
 
 from datetime import datetime, timezone
 
+from app.branding import COMPANY_NAME, PRODUCT_NAME, PRODUCT_TAGLINE
+
 
 def _layout(title: str, body_html: str) -> str:
     year = datetime.now(timezone.utc).year
@@ -14,7 +16,7 @@ def _layout(title: str, body_html: str) -> str:
             <table role="presentation" width="620" cellspacing="0" cellpadding="0" style="background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
               <tr>
                 <td style="background:#1d4ed8;color:#ffffff;padding:18px 24px;font-size:18px;font-weight:700;">
-                  Identity Admin
+                  {PRODUCT_NAME}
                 </td>
               </tr>
               <tr>
@@ -25,7 +27,7 @@ def _layout(title: str, body_html: str) -> str:
               </tr>
               <tr>
                 <td style="padding:16px 24px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:12px;color:#64748b;">
-                  Internal Identity Platform · {year}
+                  {PRODUCT_TAGLINE} · {COMPANY_NAME} · {year}
                 </td>
               </tr>
             </table>
@@ -67,7 +69,7 @@ def invitation_email_html(setup_url: str, expiry_hours: int) -> str:
     return _layout(
         "You have been invited",
         f"""
-        <p style="margin:0 0 12px 0;">An administrator created an Identity Admin account for you.</p>
+        <p style="margin:0 0 12px 0;">An administrator created a {PRODUCT_NAME} account for you.</p>
         <p style="margin:0 0 12px 0;">Complete your account setup and create your password using the link below.</p>
         <p style="margin:0 0 16px 0;">
           <a href="{setup_url}" style="display:inline-block;padding:10px 14px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;">Set Up Account</a>
@@ -99,7 +101,7 @@ def weekly_summary_email_html(user_name: str, period_label: str, items: list[dic
     )
 
     return _layout(
-        "Your weekly Mini Okta summary",
+        f"Your weekly {PRODUCT_NAME} summary",
         f"""
         <p style="margin:0 0 12px 0;">Hello {user_name}, here is your activity summary for <strong>{period_label}</strong>.</p>
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 16px 0;">

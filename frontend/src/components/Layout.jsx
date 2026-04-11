@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Outlet, NavLink, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/client';
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from '../branding';
 import OrgSelector from './OrgSelector';
 import { hasPermission as userHasPermission, hasRole } from '../utils/permissions';
 import {
@@ -193,8 +194,8 @@ export default function Layout() {
           <div className="flex items-center gap-3">
             <ProductMark className="h-9 w-9" />
             <div>
-              <h1 className="text-lg font-semibold text-gray-900">Mini Okta</h1>
-              <p className="text-xs text-gray-500">Identity platform</p>
+              <h1 className="text-lg font-semibold text-gray-900">{PRODUCT_NAME}</h1>
+              <p className="text-xs text-gray-500">{PRODUCT_TAGLINE}</p>
             </div>
           </div>
         </div>
@@ -257,7 +258,7 @@ export default function Layout() {
                 {item.label}
                 </NavLink>
               ))}
-            {!isSuperAdmin && planStatus?.access_tier === 'limited' ? (
+            {!isSuperAdmin && isOrgAdmin ? (
               <NavLink
                 to="/upgrade-access"
                 className={({ isActive }) =>
@@ -267,7 +268,7 @@ export default function Layout() {
                 }
               >
                 <SecurityIcon className="h-5 w-5" />
-                Upgrade Access
+                Billing & Plans
               </NavLink>
             ) : null}
           </div>
@@ -347,20 +348,20 @@ export default function Layout() {
         </header>
 
         <main className="p-4 sm:p-6 lg:p-8">
-          {!isSuperAdmin && planStatus?.access_tier === 'limited' ? (
+          {!isSuperAdmin && isOrgAdmin && planStatus?.access_tier === 'limited' ? (
             <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm font-semibold text-amber-900">Free Tier Organization</p>
                   <p className="text-sm text-amber-800">
-                    Your organization is currently in limited self-serve mode. Submit upgrade details to request full enterprise access.
+                    Your organization is currently on the free self-serve tier. Choose a paid plan to unlock higher limits and full admin access.
                   </p>
                 </div>
                 <button
                   onClick={() => navigate('/upgrade-access')}
                   className="inline-flex items-center justify-center rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100"
                 >
-                  Upgrade Access
+                  View Plans
                 </button>
               </div>
             </div>

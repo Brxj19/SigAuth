@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../api/client';
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from '../branding';
 import { ProductMark } from '../components/Icons';
 import PasswordCriteria from '../components/PasswordCriteria';
 import AuthParticleCanvas from '../components/AuthParticleCanvas';
@@ -37,7 +38,7 @@ export default function Signup() {
       const res = await api.post('/api/v1/signup/organization', payload);
       const orgSlug = res?.data?.organization?.slug;
       setSuccess(
-        `Organization created in limited mode${orgSlug ? ` (${orgSlug})` : ''}. Sign in as org admin. A super admin must verify it to unlock enterprise access.`
+        `Organization created in free self-serve mode${orgSlug ? ` (${orgSlug})` : ''}. Sign in as org admin and choose a paid plan whenever you want to unlock full access.`
       );
       setTimeout(() => navigate('/login'), 1400);
     } catch (err) {
@@ -54,8 +55,8 @@ export default function Signup() {
         <div className="mb-6 flex items-center gap-3">
           <ProductMark className="h-10 w-10" />
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">Get Started With Mini Okta</h1>
-            <p className="text-sm text-gray-600">Create an organization or join with an invite.</p>
+            <h1 className="text-xl font-semibold text-gray-900">Get Started With {PRODUCT_NAME}</h1>
+            <p className="text-sm text-gray-600">{PRODUCT_TAGLINE}</p>
           </div>
         </div>
 
@@ -123,7 +124,7 @@ export default function Signup() {
             </div>
 
             <div className="rounded-lg border border-gray-300 bg-gray-100 px-3 py-2 text-xs text-gray-700">
-              New organizations start in limited self-serve mode. A super admin must verify enterprise access to unlock advanced admin capabilities.
+              New organizations start on the free self-serve tier. Your org admin can upgrade to Go, Plus, or Pro later to unlock higher limits and full access.
             </div>
 
             <button disabled={loading} className="btn-primary w-full">{loading ? 'Creating Organization...' : 'Create Organization'}</button>

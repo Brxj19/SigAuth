@@ -52,7 +52,7 @@ from app.services.mfa_service import (
     verify_totp_code,
 )
 from app.services.user_service import get_user, get_user_by_email, resolve_rbac, verify_user_email, update_password, get_user_groups
-from app.services.notification_service import send_admin_activity_notification, send_notification_event
+from app.services.notification_service import send_admin_activity_notification, send_notification_event, send_org_admin_notification
 from app.services.token_service import (
     get_token_by_jti, revoke_token, issue_id_token, issue_refresh_token,
     issue_access_token, revoke_token_family, revoke_all_user_tokens, get_user_token_jtis,
@@ -241,12 +241,12 @@ async def self_serve_signup_organization(
         org_id=org.id,
         actor_user_id=admin_user.id,
         title="Self-serve organization created",
-        message=f"{admin_user.email} created organization {org.display_name or org.name} in limited mode.",
+        message=f"{admin_user.email} created organization {org.display_name or org.name} on the free self-serve tier.",
         event_key="org.self_serve_signup",
     )
 
     return OrganizationSelfServeSignupResponse(
-        message="Organization created in limited self-serve mode. A super admin must verify it to unlock enterprise capabilities.",
+        message="Organization created in free self-serve mode. Sign in as org admin and upgrade to a paid plan whenever you want higher limits and full access.",
         organization=PublicSignupOrganizationSummary(
             id=org.id,
             name=org.name,
@@ -1343,5 +1343,12 @@ async def password_setup_confirm(
         title="Account is ready",
         message="Your account setup is complete and you can sign in to your organization dashboard.",
     )
+    await send_org_admin_notification(
+        db=db,
+        org_id=user.org_id,
+        actor_user_id=user.id,
+        title="Invitation accepted",
+        message=f"{user.email} completed invitation-based account setup and can now sign in.",
+        event_key="account.invitation_accepted",
+    )
     return JSONResponse(content={"message": "Account setup completed. You can now sign in."})
-

@@ -41,6 +41,7 @@ from app.services.notification_service import (
     SECURITY_ALERT_EVENT_KEYS,
     WEEKLY_SUMMARY_EVENT,
     is_notification_enabled,
+    send_notification_event,
     set_notification_preference,
 )
 from app.services.organization_service import get_org_access_tier, get_organization
@@ -237,6 +238,13 @@ async def confirm_my_mfa_setup_endpoint(
         actor_id=user.id,
         metadata={"user_id": str(user.id), "issuer": MFA_ISSUER_NAME},
     )
+    await send_notification_event(
+        db=db,
+        user=user,
+        event_key="security.mfa_enabled",
+        title="Multi-factor authentication enabled",
+        message="Google Authenticator has been enabled for your account.",
+    )
 
     return MfaStatusResponse(
         enabled=True,
@@ -297,6 +305,13 @@ async def disable_my_mfa_endpoint(
         org_id=user.org_id,
         actor_id=user.id,
         metadata={"user_id": str(user.id)},
+    )
+    await send_notification_event(
+        db=db,
+        user=user,
+        event_key="security.mfa_disabled",
+        title="Multi-factor authentication disabled",
+        message="Multi-factor authentication was disabled for your account.",
     )
 
     return MfaStatusResponse(

@@ -16,11 +16,12 @@ import redis.asyncio as aioredis
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.branding import PRODUCT_NAME
 from app.config import settings
 from app.models.user import User
 from app.services.organization_service import get_organization
 
-MFA_ISSUER_NAME = "Mini Okta"
+MFA_ISSUER_NAME = PRODUCT_NAME
 MFA_CODE_DIGITS = 6
 MFA_TIME_STEP_SECONDS = 30
 MFA_ALLOWED_DRIFT_STEPS = 1

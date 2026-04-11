@@ -1,5 +1,6 @@
 """Auth service: login logic, lockout, RBAC resolution, token issuance."""
 
+import hashlib
 import json
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
@@ -18,7 +19,7 @@ from app.services.application_service import (
 )
 from app.services.token_service import issue_id_token, issue_access_token, issue_refresh_token
 from app.services.audit_service import write_audit_event
-from app.services.notification_service import send_admin_activity_notification
+from app.services.notification_service import send_admin_activity_notification, send_notification_event
 from app.utils.crypto_utils import verify_password
 
 MAX_LOGIN_FAILURES = 5
@@ -347,6 +348,21 @@ async def issue_login_success(
         "user_agent": user_agent,
     })
     await redis.set(f"session:{jti}", session_data, ex=expires_in)
+
+    browser_fingerprint = hashlib.sha256(f"{client_id}|{user_agent}".encode("utf-8")).hexdigest()
+    known_browser_key = f"known_browsers:{user.id}"
+    already_known = bool(await redis.sismember(known_browser_key, browser_fingerprint))
+    if not already_known:
+        known_count = int(await redis.scard(known_browser_key) or 0)
+        await redis.sadd(known_browser_key, browser_fingerprint)
+        if known_count > 0:
+            await send_notification_event(
+                db=db,
+                user=user,
+                event_key="security.new_browser_login",
+                title="New browser sign-in detected",
+                message=f"A new browser or device signed in to your account from IP {ip_address or 'unknown'}.",
+            )
 
     # Audit event
     await write_audit_event(

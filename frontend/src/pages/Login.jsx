@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/client';
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from '../branding';
 import CopyButton from '../components/CopyButton';
 import { ProductMark } from '../components/Icons';
 import AuthParticleCanvas from '../components/AuthParticleCanvas';
@@ -108,8 +109,8 @@ export default function Login() {
         <div className="mb-7 flex items-center gap-3">
           <ProductMark className="h-10 w-10" />
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">Mini Okta</h1>
-            <p className="text-sm text-gray-600">Identity and access management</p>
+            <h1 className="text-xl font-semibold text-gray-900">{PRODUCT_NAME}</h1>
+            <p className="text-sm text-gray-600">{PRODUCT_TAGLINE}</p>
           </div>
         </div>
 
@@ -124,7 +125,7 @@ export default function Login() {
         </h2>
         <p className="mt-1 text-sm text-gray-600">
           {step === 'credentials'
-            ? 'Continue to your Mini Okta workspace.'
+            ? `Continue to your ${PRODUCT_NAME} workspace.`
             : step === 'mfa'
               ? 'Enter the current 6-digit code from your authenticator app or one of your backup codes.'
               : step === 'mfa-setup'

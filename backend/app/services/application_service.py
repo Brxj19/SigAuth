@@ -12,6 +12,7 @@ from app.models.application import Application
 from app.models.application_group_assignment import ApplicationGroupAssignment
 from app.models.application_role_mapping import ApplicationRoleMapping
 from app.models.group import Group, GroupMember
+from app.models.user import User
 from app.utils.crypto_utils import generate_client_id, generate_client_secret, hash_password
 from app.utils.pagination import encode_cursor, decode_cursor, build_pagination_response
 
@@ -243,6 +244,21 @@ async def assign_groups_to_application(db: AsyncSession, app_id: UUID, group_ids
 
     await db.flush()
     return assigned
+
+
+async def list_group_users(db: AsyncSession, group_id: UUID) -> list[User]:
+    """List active users in a group."""
+    result = await db.execute(
+        select(User)
+        .join(GroupMember, GroupMember.user_id == User.id)
+        .where(
+            GroupMember.group_id == group_id,
+            User.deleted_at.is_(None),
+            User.status == "active",
+        )
+        .order_by(User.email.asc())
+    )
+    return list(result.scalars().all())
 
 
 async def remove_group_from_application(db: AsyncSession, app_id: UUID, group_id: UUID) -> bool:

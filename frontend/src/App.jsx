@@ -81,7 +81,7 @@ export default function App() {
         <Route path="audit-log" element={secure(<AuditLog />, ['audit:read'])} />
         <Route path="audit-log/:eventId" element={secure(<AuditLogDetail />, ['audit:read'])} />
         <Route path="email-deliveries" element={secure(<EmailDeliveries />, ['audit:read'])} />
-        <Route path="upgrade-access" element={<UpgradeAccess />} />
+        <Route path="upgrade-access" element={secure(<UpgradeAccess />, ['org:read'])} />
       </Route>
     </Routes>
   );

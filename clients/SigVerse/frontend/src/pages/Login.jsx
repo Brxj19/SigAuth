@@ -27,7 +27,7 @@ export default function Login() {
       await loginWithIdp();
     } catch (err) {
       setIdpLoading(false);
-      showToast(err.message || 'Unable to start Identity Admin login', 'error');
+      showToast(err.message || 'Unable to start SigAuth login', 'error');
     }
   };
 
@@ -47,7 +47,7 @@ export default function Login() {
             <div className="login-showcase-copy">
               <h1 className="login-title">SigVerse</h1>
               <p className="login-subtitle">
-                Course delivery, instructor operations, and learner workflows now use centralized sign-in through Identity Admin.
+                Course delivery, instructor operations, and learner workflows now use centralized sign-in through SigAuth.
               </p>
             </div>
           </div>
@@ -64,7 +64,7 @@ export default function Login() {
         <div className="login-card login-card-wide">
           <div className="login-card-inner">
             <div className="login-panel-copy">
-              <span className="login-panel-eyebrow">Identity Admin required</span>
+              <span className="login-panel-eyebrow">SigAuth required</span>
               <h2 className="login-panel-title">Sign in with your organization account</h2>
               <p className="login-panel-text">
                 Local email login, signup, GitHub auth, and password reset are disabled for this client.
@@ -94,10 +94,10 @@ export default function Login() {
                 onClick={handleIdpLogin}
                 disabled={idpLoading}
               >
-                {idpLoading ? 'Redirecting...' : 'Continue with Identity Admin'}
+                {idpLoading ? 'Redirecting...' : 'Continue with SigAuth'}
               </button>
               <p className="form-hint" style={{ textAlign: 'center' }}>
-                Use your IdP user such as `admin@internal.com`, `alice@internal.com`, or another user assigned to the SigVerse application.
+                Use your SigAuth user such as `admin@internal.com`, `alice@internal.com`, or another user assigned to the SigVerse application.
               </p>
             </div>
           </div>

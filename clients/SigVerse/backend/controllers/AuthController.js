@@ -7,8 +7,8 @@ function sendIdpOnly(res) {
   return sendError(
     res,
     410,
-    'SigVerse now uses Identity Admin only. Sign in through the IdP flow.',
-    ['Use /login in the SigVerse frontend and continue with Identity Admin.']
+    'SigVerse now uses SigAuth only. Sign in through the IdP flow.',
+    ['Use /login in the SigVerse frontend and continue with SigAuth.']
   );
 }
 

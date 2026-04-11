@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.branding import PRODUCT_NAME
 from app.models.email_delivery import EmailDelivery
 from app.models.group import GroupMember, GroupRole
 from app.models.notification import Notification
@@ -20,6 +21,9 @@ SECURITY_ALERT_EVENT_KEYS = (
     "security.password_reset",
     "security.password_expired",
     "security.login_failure",
+    "security.mfa_enabled",
+    "security.mfa_disabled",
+    "security.new_browser_login",
 )
 
 WEEKLY_SUMMARY_EVENT = "summary.weekly_digest"
@@ -30,6 +34,13 @@ DEFAULT_NOTIFICATION_EVENTS = {
     "account.activated",
     "account.unlocked",
     "account.role_changed",
+    "account.invitation_accepted",
+    "app.assignment",
+    "billing.payment_success",
+    "billing.renewal_reminder",
+    "billing.subscription_expired",
+    "billing.cancel_scheduled",
+    "billing.cancel_reminder",
     *SECURITY_ALERT_EVENT_KEYS,
     "admin.activity",
 }
@@ -38,6 +49,16 @@ SUPPORTED_NOTIFICATION_EVENTS = {
     *DEFAULT_NOTIFICATION_EVENTS,
     WEEKLY_SUMMARY_EVENT,
 }
+
+
+def _preference_event_key(event_key: str) -> str:
+    """Map custom admin/org activity events onto preference-aware categories."""
+    normalized = str(event_key or "").strip()
+    if normalized in SUPPORTED_NOTIFICATION_EVENTS:
+        return normalized
+    if normalized.startswith(("org.", "app.", "group.", "user.")):
+        return "admin.activity"
+    return normalized
 
 
 async def create_in_app_notification(
@@ -162,15 +183,16 @@ async def is_notification_enabled(
     event_key: str,
 ) -> bool:
     """Resolve preference for event; defaults to enabled for known events."""
+    preference_key = _preference_event_key(event_key)
     result = await db.execute(
         select(NotificationPreference).where(
             NotificationPreference.user_id == user_id,
-            NotificationPreference.event_key == event_key,
+            NotificationPreference.event_key == preference_key,
         )
     )
     pref = result.scalar_one_or_none()
     if pref is None:
-        return event_key in DEFAULT_NOTIFICATION_EVENTS
+        return preference_key in DEFAULT_NOTIFICATION_EVENTS
     return bool(pref.enabled)
 
 
@@ -234,7 +256,22 @@ def _weekly_summary_label(event_key: str) -> str:
         "security.password_reset": "Password resets",
         "security.password_expired": "Password expirations",
         "security.login_failure": "Failed sign-in attempts",
+        "security.mfa_enabled": "MFA enabled",
+        "security.mfa_disabled": "MFA disabled",
+        "security.new_browser_login": "New browser sign-ins",
+        "billing.payment_success": "Successful subscription payments",
+        "billing.renewal_reminder": "Subscription renewal reminders",
+        "billing.subscription_expired": "Subscription expirations",
+        "billing.cancel_scheduled": "Subscription cancellations scheduled",
+        "billing.cancel_reminder": "Upcoming subscription cancellations",
+        "app.assignment": "New application assignments",
+        "account.invitation_accepted": "Accepted invitations",
         "admin.activity": "Admin activity",
+        "org.self_serve_signup": "Self-serve organization signups",
+        "org.billing.checkout.started": "Billing checkouts started",
+        "org.billing.checkout.completed": "Billing checkouts completed",
+        "org.subscription.cancel_at_period_end": "Subscription cancellations scheduled",
+        "org.subscription.resumed": "Subscription renewals resumed",
     }
     return labels.get(event_key, event_key.replace(".", " ").replace("_", " ").title())
 
@@ -296,7 +333,7 @@ async def send_weekly_summary_email(
     await queue_email(
         db=db,
         to_email=user.email,
-        subject="Your Mini Okta weekly summary",
+        subject=f"Your {PRODUCT_NAME} weekly summary",
         html_body=weekly_summary_email_html(user_name, period_label, summary_items, unread_count),
         event_key=WEEKLY_SUMMARY_EVENT,
         org_id=user.org_id,
@@ -346,6 +383,32 @@ async def list_admin_recipients(
     return list(recipients.values())
 
 
+async def list_org_admin_recipients(
+    db: AsyncSession,
+    org_id: UUID,
+    actor_user_id: Optional[UUID] = None,
+) -> list[User]:
+    """Get organization admin recipients only, excluding actor if provided."""
+    org_admin_result = await db.execute(
+        select(User)
+        .distinct()
+        .join(GroupMember, GroupMember.user_id == User.id)
+        .join(GroupRole, GroupRole.group_id == GroupMember.group_id)
+        .join(Role, Role.id == GroupRole.role_id)
+        .where(
+            User.org_id == org_id,
+            User.deleted_at.is_(None),
+            Role.name == "org:admin",
+        )
+    )
+    recipients: list[User] = []
+    for user in org_admin_result.scalars().all():
+        if actor_user_id and user.id == actor_user_id:
+            continue
+        recipients.append(user)
+    return recipients
+
+
 async def send_admin_activity_notification(
     db: AsyncSession,
     org_id: Optional[UUID],
@@ -356,6 +419,27 @@ async def send_admin_activity_notification(
 ) -> int:
     """Send an in-app/email event to platform admins and org admins."""
     recipients = await list_admin_recipients(db=db, org_id=org_id, actor_user_id=actor_user_id)
+    for recipient in recipients:
+        await send_notification_event(
+            db=db,
+            user=recipient,
+            event_key=event_key,
+            title=title,
+            message=message,
+        )
+    return len(recipients)
+
+
+async def send_org_admin_notification(
+    db: AsyncSession,
+    org_id: UUID,
+    title: str,
+    message: str,
+    event_key: str,
+    actor_user_id: Optional[UUID] = None,
+) -> int:
+    """Send an in-app/email event to organization admins only."""
+    recipients = await list_org_admin_recipients(db=db, org_id=org_id, actor_user_id=actor_user_id)
     for recipient in recipients:
         await send_notification_event(
             db=db,

@@ -14,6 +14,16 @@ from app.schemas.organization import (
     OrganizationCreate, OrganizationUpdate, OrganizationResponse, OrganizationListResponse,
     OrganizationCreateResponse, BootstrapAdminResponse,
     UpgradeRequestCreate, PlanStatusResponse, PendingUpgradeRequestListResponse, PendingUpgradeRequestItem,
+    BillingCheckoutCreate, BillingCheckoutComplete, BillingCheckoutSessionResponse,
+)
+from app.services.billing_service import (
+    build_plan_status_payload,
+    complete_demo_checkout,
+    complete_razorpay_checkout,
+    get_billing_provider_info,
+    mark_cancel_at_period_end,
+    start_demo_checkout,
+    start_razorpay_checkout,
 )
 from app.services.organization_service import (
     create_organization_with_admin, get_organization, list_organizations,
@@ -21,9 +31,21 @@ from app.services.organization_service import (
     set_organization_access_tier, get_org_access_tier, get_org_limits,
 )
 from app.services.audit_service import write_audit_event
+from app.services.notification_service import send_admin_activity_notification, send_notification_event
 
 router = APIRouter(prefix="/api/v1/admin/organizations", tags=["organizations"])
 org_router = APIRouter(prefix="/api/v1/organizations/{org_id}", tags=["organizations"])
+
+
+def _require_org_admin(current_user: dict) -> None:
+    if current_user.get("is_super_admin"):
+        return
+    normalized_roles = {str(role).lower() for role in (current_user.get("roles") or [])}
+    if "org:admin" not in normalized_roles:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "org_admin_required", "error_description": "Only organization admins can manage billing for this organization."},
+        )
 
 
 @router.post("", response_model=OrganizationCreateResponse, status_code=201)
@@ -297,16 +319,213 @@ async def get_plan_status(
     org = await get_organization(db, org_id)
     if not org:
         raise HTTPException(404, detail={"error": "not_found", "error_description": "Organization not found"})
-    settings = org.settings or {}
-    return PlanStatusResponse(
+    return PlanStatusResponse(**build_plan_status_payload(org))
+
+
+@org_router.post("/billing/checkout-session", response_model=BillingCheckoutSessionResponse)
+async def create_billing_checkout_session(
+    org_id: UUID,
+    body: BillingCheckoutCreate,
+    current_user: dict = Depends(require_permission("org:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Start a paid plan checkout session for an organization admin."""
+    _require_org_admin(current_user)
+    org = await get_organization(db, org_id)
+    if not org:
+        raise HTTPException(404, detail={"error": "not_found", "error_description": "Organization not found"})
+
+    provider = str((org.settings or {}).get("billing", {}).get("provider") or get_billing_provider_info()["provider"]).strip().lower()
+    if provider == "razorpay":
+        try:
+            next_settings, checkout = await start_razorpay_checkout(
+                org.settings,
+                org=org,
+                plan_code=body.plan_code,
+                payment_method=body.payment_method,
+                actor_email=str(current_user.get("email") or ""),
+            )
+        except ValueError as exc:
+            raise HTTPException(400, detail={"error": "checkout_failed", "error_description": str(exc)})
+    else:
+        try:
+            next_settings, checkout = start_demo_checkout(
+                org.settings,
+                plan_code=body.plan_code,
+                payment_method=body.payment_method,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, detail={"error": "checkout_failed", "error_description": str(exc)})
+
+    org.settings = next_settings
+    org.updated_at = datetime.now(timezone.utc)
+    await write_audit_event(
+        db,
+        "org.billing.checkout.started",
+        "organization",
+        str(org.id),
         org_id=org.id,
-        org_name=org.display_name or org.name,
-        org_slug=org.slug,
-        access_tier=get_org_access_tier(settings),
-        verification_status=str(settings.get("verification_status") or "pending"),
-        limits=get_org_limits(settings),
-        upgrade_request=settings.get("upgrade_request") if isinstance(settings.get("upgrade_request"), dict) else None,
+        actor_id=current_user["user_id"],
+        metadata={"org_name": org.name, "plan_code": body.plan_code, "provider": checkout.get("provider")},
     )
+    await send_admin_activity_notification(
+        db=db,
+        org_id=org.id,
+        actor_user_id=current_user["user_id"],
+        title="Billing checkout started",
+        message=f"{current_user.get('email', 'An admin')} started checkout for the {str(body.plan_code).title()} plan.",
+        event_key="org.billing.checkout.started",
+    )
+    return BillingCheckoutSessionResponse(
+        checkout=checkout,
+        plan_status=PlanStatusResponse(**build_plan_status_payload(org)),
+    )
+
+
+@org_router.post("/billing/checkout-complete", response_model=PlanStatusResponse)
+async def complete_billing_checkout(
+    org_id: UUID,
+    body: BillingCheckoutComplete,
+    current_user: dict = Depends(require_permission("org:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Finalize a billing checkout and activate the paid organization plan."""
+    _require_org_admin(current_user)
+    org = await get_organization(db, org_id)
+    if not org:
+        raise HTTPException(404, detail={"error": "not_found", "error_description": "Organization not found"})
+
+    provider = str(body.provider or "").strip().lower()
+    try:
+        if provider == "razorpay":
+            next_settings = complete_razorpay_checkout(
+                org.settings,
+                session_id=body.session_id,
+                razorpay_order_id=str(body.razorpay_order_id or ""),
+                razorpay_payment_id=str(body.razorpay_payment_id or ""),
+                razorpay_signature=str(body.razorpay_signature or ""),
+                payment_method=body.payment_method,
+            )
+        else:
+            next_settings = complete_demo_checkout(
+                org.settings,
+                session_id=body.session_id,
+                payment_method=body.payment_method,
+            )
+    except ValueError as exc:
+        raise HTTPException(400, detail={"error": "payment_verification_failed", "error_description": str(exc)})
+
+    org.settings = next_settings
+    org.updated_at = datetime.now(timezone.utc)
+    plan_status = build_plan_status_payload(org)
+    await write_audit_event(
+        db,
+        "org.billing.checkout.completed",
+        "organization",
+        str(org.id),
+        org_id=org.id,
+        actor_id=current_user["user_id"],
+        metadata={
+            "org_name": org.name,
+            "plan_code": plan_status["current_plan_code"],
+            "provider": provider or "demo",
+        },
+    )
+    await send_admin_activity_notification(
+        db=db,
+        org_id=org.id,
+        actor_user_id=current_user["user_id"],
+        title="Subscription activated",
+        message=f"{current_user.get('email', 'An admin')} activated the {plan_status['current_plan']['name']} plan for {org.display_name or org.name}.",
+        event_key="org.billing.checkout.completed",
+    )
+    await send_notification_event(
+        db=db,
+        user=current_user["user"],
+        event_key="billing.payment_success",
+        title="Subscription payment successful",
+        message=f"Your payment was received and the {plan_status['current_plan']['name']} plan is now active for {org.display_name or org.name}.",
+    )
+    return PlanStatusResponse(**plan_status)
+
+
+@org_router.post("/billing/cancel-at-period-end", response_model=PlanStatusResponse)
+async def cancel_subscription_at_period_end(
+    org_id: UUID,
+    current_user: dict = Depends(require_permission("org:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark the current paid subscription to end after the current billing cycle."""
+    _require_org_admin(current_user)
+    org = await get_organization(db, org_id)
+    if not org:
+        raise HTTPException(404, detail={"error": "not_found", "error_description": "Organization not found"})
+    try:
+        org.settings = mark_cancel_at_period_end(org.settings, cancel=True)
+    except ValueError as exc:
+        raise HTTPException(400, detail={"error": "subscription_not_active", "error_description": str(exc)})
+    org.updated_at = datetime.now(timezone.utc)
+    await write_audit_event(
+        db,
+        "org.subscription.cancel_at_period_end",
+        "organization",
+        str(org.id),
+        org_id=org.id,
+        actor_id=current_user["user_id"],
+        metadata={"org_name": org.name},
+    )
+    await send_admin_activity_notification(
+        db=db,
+        org_id=org.id,
+        actor_user_id=current_user["user_id"],
+        title="Subscription set to cancel",
+        message=f"{current_user.get('email', 'An admin')} scheduled the current subscription to end at the close of this billing cycle.",
+        event_key="org.subscription.cancel_at_period_end",
+    )
+    await send_notification_event(
+        db=db,
+        user=current_user["user"],
+        event_key="billing.cancel_scheduled",
+        title="Subscription will end at period close",
+        message="Your subscription is now set to cancel at the end of the current billing cycle.",
+    )
+    return PlanStatusResponse(**build_plan_status_payload(org))
+
+
+@org_router.post("/billing/resume", response_model=PlanStatusResponse)
+async def resume_subscription(
+    org_id: UUID,
+    current_user: dict = Depends(require_permission("org:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Resume the current subscription and clear cancel-at-period-end."""
+    _require_org_admin(current_user)
+    org = await get_organization(db, org_id)
+    if not org:
+        raise HTTPException(404, detail={"error": "not_found", "error_description": "Organization not found"})
+    try:
+        org.settings = mark_cancel_at_period_end(org.settings, cancel=False)
+    except ValueError as exc:
+        raise HTTPException(400, detail={"error": "subscription_not_active", "error_description": str(exc)})
+    org.updated_at = datetime.now(timezone.utc)
+    await write_audit_event(
+        db,
+        "org.subscription.resumed",
+        "organization",
+        str(org.id),
+        org_id=org.id,
+        actor_id=current_user["user_id"],
+        metadata={"org_name": org.name},
+    )
+    await send_admin_activity_notification(
+        db=db,
+        org_id=org.id,
+        actor_user_id=current_user["user_id"],
+        title="Subscription resumed",
+        message=f"{current_user.get('email', 'An admin')} resumed the organization's subscription renewal.",
+        event_key="org.subscription.resumed",
+    )
+    return PlanStatusResponse(**build_plan_status_payload(org))
 
 
 @org_router.post("/upgrade-request", response_model=PlanStatusResponse)

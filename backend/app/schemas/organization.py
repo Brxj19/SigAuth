@@ -79,6 +79,33 @@ class PlanStatusResponse(BaseModel):
     verification_status: str
     limits: dict[str, Any] = Field(default_factory=dict)
     upgrade_request: Optional[dict[str, Any]] = None
+    current_plan_code: str = "free"
+    current_plan: dict[str, Any] = Field(default_factory=dict)
+    available_plans: list[dict[str, Any]] = Field(default_factory=list)
+    billing_provider: str = "demo"
+    gateway_ready: bool = False
+    subscription: Optional[dict[str, Any]] = None
+    payments: list[dict[str, Any]] = Field(default_factory=list)
+    last_paid_plan_code: Optional[str] = None
+
+
+class BillingCheckoutCreate(BaseModel):
+    plan_code: str = Field(..., min_length=2, max_length=40)
+    payment_method: str = Field(default="upi", min_length=3, max_length=20)
+
+
+class BillingCheckoutComplete(BaseModel):
+    provider: str = Field(..., min_length=3, max_length=30)
+    session_id: str = Field(..., min_length=8, max_length=200)
+    payment_method: str = Field(default="upi", min_length=3, max_length=20)
+    razorpay_order_id: Optional[str] = Field(default=None, max_length=120)
+    razorpay_payment_id: Optional[str] = Field(default=None, max_length=120)
+    razorpay_signature: Optional[str] = Field(default=None, max_length=256)
+
+
+class BillingCheckoutSessionResponse(BaseModel):
+    checkout: dict[str, Any] = Field(default_factory=dict)
+    plan_status: PlanStatusResponse
 
 
 class CurrentOrganizationResponse(BaseModel):

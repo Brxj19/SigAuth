@@ -5,6 +5,7 @@ import json
 from typing import Optional
 from urllib.parse import quote
 
+from app.branding import PRODUCT_NAME, PRODUCT_TAGLINE
 from app.config import settings
 
 SCOPE_LABELS = {
@@ -114,10 +115,10 @@ def render_authorize_transition_page(*, redirect_url: str, auth_state: dict) -> 
 <body>
     <main class="transition-shell">
         <div class="transition-logo">
-            <img src="{safe_product_logo_url}" alt="Mini Okta logo" />
+            <img src="{safe_product_logo_url}" alt="{html.escape(PRODUCT_NAME)} logo" />
         </div>
         <h1>Authentication successful</h1>
-        <p>Mini Okta has verified your sign-in. We’re now redirecting you back to <strong>{client_name}</strong>.</p>
+        <p>{html.escape(PRODUCT_NAME)} has verified your sign-in. We’re now redirecting you back to <strong>{client_name}</strong>.</p>
         <div class="transition-motion">
             <dotlottie-wc src="{html.escape(LOTTIE_AUTH_ANIMATION_SRC)}" autoplay loop></dotlottie-wc>
         </div>
@@ -208,7 +209,7 @@ def render_authorize_mfa_page(
     <div class="shell">
         <section class="context">
             <div class="eyebrow">Authorization Request</div>
-            <h1>{safe_client_name} wants access to your Mini Okta account.</h1>
+            <h1>{safe_client_name} wants access to your {html.escape(PRODUCT_NAME)} account.</h1>
             <p class="context-copy">Complete multi-factor verification to continue the authorization request securely.</p>
             <div class="client-card">
                 <div class="client-top">
@@ -229,11 +230,11 @@ def render_authorize_mfa_page(
         <section class="signin">
             <div class="brand-row">
                 <div class="brand-lock">
-                    <img src="{safe_product_logo_url}" alt="Mini Okta logo" />
+                    <img src="{safe_product_logo_url}" alt="{html.escape(PRODUCT_NAME)} logo" />
                 </div>
                 <div class="brand-copy">
-                    <strong>Mini Okta</strong>
-                    <span>Identity Provider Sign-In</span>
+                    <strong>{html.escape(PRODUCT_NAME)}</strong>
+                    <span>{html.escape(PRODUCT_TAGLINE)}</span>
                 </div>
             </div>
             <h2>{title}</h2>
@@ -284,16 +285,16 @@ def render_authorize_backup_codes_page(
         <section class="context">
             <div class="eyebrow">Recovery Codes</div>
             <h1>Save these backup codes before you continue.</h1>
-            <p class="context-copy">You can use each code once if you lose access to Google Authenticator for your Mini Okta account.</p>
+            <p class="context-copy">You can use each code once if you lose access to Google Authenticator for your {html.escape(PRODUCT_NAME)} account.</p>
             {_authorize_lottie_block()}
         </section>
         <section class="signin">
             <div class="brand-row">
                 <div class="brand-lock">
-                    <img src="{safe_product_logo_url}" alt="Mini Okta logo" />
+                    <img src="{safe_product_logo_url}" alt="{html.escape(PRODUCT_NAME)} logo" />
                 </div>
                 <div class="brand-copy">
-                    <strong>Mini Okta</strong>
+                    <strong>{html.escape(PRODUCT_NAME)}</strong>
                     <span>{client_name} authorization</span>
                 </div>
             </div>
@@ -357,7 +358,7 @@ def render_authorize_login_page(*, state: str, auth_state: dict, error_message: 
     <div class="shell">
         <section class="context">
             <div class="eyebrow">Authorization Request</div>
-            <h1>{safe_client_name} wants access to your Mini Okta account.</h1>
+            <h1>{safe_client_name} wants access to your {html.escape(PRODUCT_NAME)} account.</h1>
             <p class="context-copy">Review the client application below, then sign in to continue. This mirrors the familiar OAuth experience where the identity provider shows who is asking and what access is being requested.</p>
             <div class="client-card">
                 <div class="client-top">
@@ -379,11 +380,11 @@ def render_authorize_login_page(*, state: str, auth_state: dict, error_message: 
         <section class="signin">
             <div class="brand-row">
                 <div class="brand-lock">
-                    <img src="{safe_product_logo_url}" alt="Mini Okta logo" />
+                    <img src="{safe_product_logo_url}" alt="{html.escape(PRODUCT_NAME)} logo" />
                 </div>
                 <div class="brand-copy">
-                    <strong>Mini Okta</strong>
-                    <span>Identity Provider Sign-In</span>
+                    <strong>{html.escape(PRODUCT_NAME)}</strong>
+                    <span>{html.escape(PRODUCT_TAGLINE)}</span>
                 </div>
             </div>
             <h2>Sign in to continue</h2>

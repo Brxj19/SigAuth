@@ -136,7 +136,7 @@ def require_permission(*required_permissions: str):
                     status_code=403,
                     detail={
                         "error": "organization_verification_required",
-                        "error_description": "This organization is in limited self-serve mode. Ask a super admin to verify and unlock enterprise access.",
+                        "error_description": "This organization is on the free self-serve tier. Upgrade to a paid plan to unlock this capability.",
                     },
                 )
 

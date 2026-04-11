@@ -21,11 +21,12 @@ from app.services.application_service import (
     update_application, rotate_secret, disable_application, delete_application,
     list_application_groups, assign_groups_to_application, remove_group_from_application,
     list_application_role_mappings, create_application_role_mapping, delete_application_role_mapping,
+    list_group_users,
 )
 from app.services.token_service import revoke_all_client_tokens
 from app.services.audit_service import write_audit_event
 from app.services.group_service import get_group
-from app.services.notification_service import send_admin_activity_notification
+from app.services.notification_service import send_admin_activity_notification, send_notification_event
 from app.services.role_service import list_roles
 from app.services.organization_service import get_org_limits, is_org_limited
 from app.services.organization_service import validate_limited_org_app_policy
@@ -283,7 +284,7 @@ async def assign_application_groups_endpoint(
     db: AsyncSession = Depends(get_db),
 ):
     """Assign organization groups to an application."""
-    await _get_org_application_or_404(db, org_id, app_id)
+    app = await _get_org_application_or_404(db, org_id, app_id)
 
     for group_id in body.group_ids:
         group = await get_group(db, group_id)
@@ -291,13 +292,26 @@ async def assign_application_groups_endpoint(
             raise HTTPException(404, detail={"error": "not_found", "error_description": "Group not found"})
 
     assigned = await assign_groups_to_application(db, app_id, body.group_ids)
+    notified_user_ids: set[UUID] = set()
+    for group_id in assigned:
+        for user in await list_group_users(db, group_id):
+            if user.id in notified_user_ids:
+                continue
+            notified_user_ids.add(user.id)
+            await send_notification_event(
+                db=db,
+                user=user,
+                event_key="app.assignment",
+                title="A new application is available",
+                message=f"You now have access to {app.name} in your application directory.",
+            )
     if assigned:
         await send_admin_activity_notification(
             db=db,
             org_id=org_id,
             actor_user_id=current_user["user_id"],
             title="Application groups updated",
-            message=f"{current_user.get('email', 'An admin')} assigned {len(assigned)} group(s) to application '{(await _get_org_application_or_404(db, org_id, app_id)).name}'.",
+            message=f"{current_user.get('email', 'An admin')} assigned {len(assigned)} group(s) to application '{app.name}'.",
         )
     return {"message": f"Assigned {len(assigned)} groups", "assigned": [str(group_id) for group_id in assigned]}
 

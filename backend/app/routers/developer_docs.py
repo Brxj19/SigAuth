@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
+from app.branding import DEVELOPER_DOCS_NAME, PRODUCT_NAME, PRODUCT_TAGLINE
 from app.config import settings
 
 router = APIRouter(tags=["developer-docs"])
@@ -12,6 +13,7 @@ router = APIRouter(tags=["developer-docs"])
 async def developer_docs_page():
     """Render developer-facing integration docs with practical code examples."""
     issuer = settings.ISSUER_URL.rstrip("/")
+    logo_url = f"{settings.ADMIN_CONSOLE_URL.rstrip('/')}/logo.png"
     authorize_url = f"{issuer}/api/v1/authorize"
     token_url = f"{issuer}/api/v1/token"
     userinfo_url = f"{issuer}/api/v1/userinfo"
@@ -25,7 +27,7 @@ async def developer_docs_page():
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mini Okta Developer Documentation</title>
+  <title>{DEVELOPER_DOCS_NAME}</title>
   <style>
     :root {{
       --bg: #ffffff;
@@ -335,10 +337,10 @@ async def developer_docs_page():
   <main class="shell">
     <aside class="sidebar">
       <div class="brand">
-        <img src="/logo.png" alt="Mini Okta logo" />
+        <img src="{logo_url}" alt="{PRODUCT_NAME} logo" />
         <div>
-          <h1>Mini Okta Docs</h1>
-          <p>Developer Integration Guide</p>
+          <h1>{DEVELOPER_DOCS_NAME}</h1>
+          <p>{PRODUCT_TAGLINE}</p>
         </div>
       </div>
 
@@ -366,10 +368,10 @@ async def developer_docs_page():
 
     <article class="content">
       <header class="hero">
-        <div class="eyebrow">Mini Okta • Developer Platform</div>
+        <div class="eyebrow">{PRODUCT_NAME} • Developer Platform</div>
         <h2>Comprehensive Developer Documentation</h2>
         <p>
-          Use this guide to integrate your web app, SPA, mobile app, or backend service with Mini Okta.
+          Use this guide to integrate your web app, SPA, mobile app, or backend service with {PRODUCT_NAME}.
           It covers registration, authorization, token exchange, validation, API usage, failure modes, and
           production controls in one place.
         </p>
@@ -391,7 +393,7 @@ async def developer_docs_page():
         <h3>Quickstart</h3>
         <p>For a standard SPA or web integration, follow this sequence:</p>
         <ol>
-          <li>Create or obtain a Mini Okta client application and configure a strict redirect URI.</li>
+          <li>Create or obtain a {PRODUCT_NAME} client application and configure a strict redirect URI.</li>
           <li>Generate PKCE values (<code>code_verifier</code>, <code>code_challenge</code>), plus <code>state</code> and <code>nonce</code>.</li>
           <li>Redirect users to <code>{authorize_url}</code>.</li>
           <li>On callback, validate state and exchange code at <code>{token_url}</code>.</li>
@@ -425,9 +427,9 @@ async def developer_docs_page():
         <h4>Environment setup recommendation</h4>
         <div class="code-wrap">
           <div class="code-head"><span>.env example for a client app</span><button class="copy-btn" data-copy="env-config">Copy</button></div>
-          <pre id="env-config">MINI_OKTA_ISSUER={issuer}
-MINI_OKTA_CLIENT_ID=your-client-id
-MINI_OKTA_REDIRECT_URI=http://localhost:4000/callback
+          <pre id="env-config">SIGAUTH_ISSUER={issuer}
+SIGAUTH_CLIENT_ID=your-client-id
+SIGAUTH_REDIRECT_URI=http://localhost:4000/callback
 MINI_OKTA_POST_LOGOUT_REDIRECT_URI=http://localhost:4000/
 MINI_OKTA_SCOPES=openid profile email</pre>
         </div>
