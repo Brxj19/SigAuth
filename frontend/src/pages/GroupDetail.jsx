@@ -1,0 +1,160 @@
+import React, { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import api from '../api/client';
+import GroupMembershipTable from '../components/GroupMembershipTable';
+import RoleBadge from '../components/RoleBadge';
+import PageHeader from '../components/PageHeader';
+import { ArrowLeftIcon } from '../components/Icons';
+import { hasPermission, hasRole } from '../utils/permissions';
+
+export default function GroupDetail() {
+  const { id } = useParams();
+  const { orgId, claims, isSuperAdmin } = useAuth();
+  const navigate = useNavigate();
+  const [group, setGroup] = useState(null);
+  const [roles, setRoles] = useState([]);
+  const [allRoles, setAllRoles] = useState([]);
+  const [selectedRole, setSelectedRole] = useState('');
+  const [tab, setTab] = useState('members');
+
+  const fetchGroup = async () => {
+    try {
+      // Groups endpoint returns group in list, get it specifically
+      const res = await api.get(`/api/v1/organizations/${orgId}/groups?limit=100`);
+      const found = (res.data.data || []).find(g => g.id === id);
+      if (found) setGroup(found);
+      else navigate('/groups');
+    } catch { navigate('/groups'); }
+  };
+
+  const fetchGroupRoles = async () => {
+    try {
+      const res = await api.get(`/api/v1/organizations/${orgId}/groups/${id}/roles`);
+      setRoles(res.data.data || []);
+    } catch {}
+  };
+
+  const fetchAllRoles = async () => {
+    try {
+      const res = await api.get(`/api/v1/organizations/${orgId}/roles?limit=100`);
+      setAllRoles(res.data.data || []);
+    } catch {}
+  };
+
+  useEffect(() => {
+    fetchGroup();
+    fetchGroupRoles();
+    fetchAllRoles();
+  }, [id, orgId]);
+
+  const assignRole = async () => {
+    if (!selectedRole) return;
+    try {
+      await api.post(`/api/v1/organizations/${orgId}/groups/${id}/roles`, { role_ids: [selectedRole] });
+      setSelectedRole('');
+      fetchGroupRoles();
+    } catch {}
+  };
+
+  const removeRole = async (roleId) => {
+    if (!confirm('Remove this role from group?')) return;
+    try {
+      await api.delete(`/api/v1/organizations/${orgId}/groups/${id}/roles/${roleId}`);
+      fetchGroupRoles();
+    } catch {}
+  };
+
+  const handleDelete = async () => {
+    if (!confirm('Delete this group? All memberships and role assignments will be removed.')) return;
+    await api.delete(`/api/v1/organizations/${orgId}/groups/${id}`);
+    navigate('/groups');
+  };
+
+  if (!group) return <div className="text-center py-20 text-dark-400">Loading...</div>;
+
+  const assignedRoleIds = new Set(roles.map(r => r.id));
+  const availableRoles = allRoles.filter(r => !assignedRoleIds.has(r.id));
+  const groupIsProtected = roles.some((role) => role.name === 'org:admin');
+  const actorCanManageProtectedGroup = isSuperAdmin || hasRole(claims, 'org:admin');
+  const canManageMembers = hasPermission(claims, 'group:member:add') && hasPermission(claims, 'group:member:remove');
+  const canAssignRoles = hasPermission(claims, 'role:update');
+  const canDeleteGroup = hasPermission(claims, 'group:delete');
+  const blockProtectedGroupActions = groupIsProtected && !actorCanManageProtectedGroup;
+
+  return (
+    <div>
+      <button onClick={() => navigate('/groups')} className="mb-4 inline-flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-slate-800">
+        <ArrowLeftIcon className="h-4 w-4" />
+        Back to groups
+      </button>
+
+      <PageHeader
+        eyebrow="Group"
+        title={group.name}
+        description={group.description || 'Manage memberships and effective roles for this directory group.'}
+        actions={canDeleteGroup && !blockProtectedGroupActions ? <button onClick={handleDelete} className="btn-danger text-sm">Delete Group</button> : null}
+      />
+
+      {blockProtectedGroupActions ? (
+        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          This group grants administrator access. Only organization admins can change its memberships, roles, or delete it.
+        </div>
+      ) : null}
+
+      <div className="mb-6 flex gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm w-fit">
+        {['members', 'roles'].map(t => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              tab === t ? 'bg-blue-50 text-blue-700' : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            {t === 'members' ? 'Members' : 'Roles'}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'members' && (
+        <div className="card">
+          <h2 className="text-lg font-semibold mb-4">Members</h2>
+          <GroupMembershipTable
+            groupId={id}
+            allowManageMembers={canManageMembers && !blockProtectedGroupActions}
+            blockedMessage={blockProtectedGroupActions ? 'Organization admin access groups can only be managed by organization admins.' : ''}
+          />
+        </div>
+      )}
+
+      {tab === 'roles' && (
+        <div className="card">
+          <h2 className="text-lg font-semibold mb-4">Assigned Roles</h2>
+          {canAssignRoles ? (
+            <div className="flex gap-3 mb-6">
+              <select value={selectedRole} onChange={e => setSelectedRole(e.target.value)} className="input-field max-w-xs" disabled={blockProtectedGroupActions}>
+                <option value="">Select role to assign...</option>
+                {availableRoles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+              <button onClick={assignRole} disabled={!selectedRole || blockProtectedGroupActions} className="btn-primary text-sm">Assign</button>
+            </div>
+          ) : null}
+          <div className="space-y-3">
+            {roles.map(r => (
+              <div key={r.id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div>
+                  <RoleBadge role={r.name} />
+                  <p className="mt-1 text-xs text-slate-500">{r.description}</p>
+                </div>
+                {canAssignRoles ? (
+                  <button onClick={() => removeRole(r.id)} disabled={blockProtectedGroupActions} className="text-sm text-red-700 hover:text-red-800 disabled:cursor-not-allowed disabled:text-slate-400">Remove</button>
+                ) : null}
+              </div>
+            ))}
+            {roles.length === 0 && <p className="text-sm text-slate-500">No roles assigned</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

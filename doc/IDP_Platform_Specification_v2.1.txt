@@ -1,0 +1,1126 @@
+Internal Identity Provider Platform
+Comprehensive Project Specification
+OIDC ID Token Authentication  •  Application Registry  •  Group-Based RBAC
+Project
+Internal Identity Provider (IdP)
+Version
+2.1
+Type
+Intern Engineering Project
+Stack
+FastAPI / Node.js  •  React  •  PostgreSQL  •  JWT  •  bcrypt
+Auth Model
+OIDC ID Token — primary auth; Access & Refresh tokens are optional
+Audience
+Engineering Interns  •  Tech Lead  •  Security Team
+Status
+Active Development
+
+★  CORE AUTH PRINCIPLE — Authentication is performed exclusively using the OIDC ID Token. Access Tokens and Refresh Tokens are optional extensions.
+
+1. Project Overview
+This document is the single source of truth for the Internal Identity Provider (IdP) intern project. The platform is built around the OIDC ID Token as the exclusive mechanism for user authentication. Access Tokens and Refresh Tokens, while described in this document, are designated as optional extensions. Organization management is likewise optional and earns bonus marks.
+
+1.1 Objectives
+	•	Authenticate users securely with email + password using the OIDC Authorization Code flow.
+	•	Issue a signed OIDC ID Token as the single proof of identity consumed by client applications.
+	•	Delegate login to a centralised IdP — no per-app credential storage.
+	•	Implement full RBAC using Groups as the assignment vehicle; embed roles and permissions inside the ID Token.
+	•	Register and manage applications (OAuth clients) that redirect users to this IdP for login.
+	•	Provide a React admin console for managing users, groups, roles, and applications.
+	•	[Optional] Support multi-tenant Organizations with isolated resources.
+	•	[Optional] Issue Access Tokens and Refresh Tokens for API-level authorisation.
+
+1.2 Problem Statement
+Enterprise teams using separate per-app login systems face credential sprawl, inconsistent access policies, and audit gaps. This project builds a simplified internal identity provider — inspired by Okta and Auth0 — that centralises authentication in one service. Client applications receive an OIDC ID Token after login; they parse the token's claims to determine who the user is and what they are allowed to do, without any further round-trips to the IdP.
+
+1.3 Scope Summary
+Module
+Status
+Notes
+User Authentication (OIDC ID Token)
+Core
+Primary deliverable — ID Token issued on login
+Application Registry
+Core
+Register OAuth clients, manage redirect URIs
+User Management
+Core
+CRUD, password reset, MFA flags
+Groups & RBAC
+Core
+Groups → Roles → Permissions embedded in ID Token
+OIDC Authorization Code + PKCE
+Core
+Required auth flow
+ID Token (OIDC)
+Core
+The sole required token type
+Admin Console (React)
+Core
+Full UI for all management operations
+Audit Logging
+Core
+Append-only event log for security review
+Access Token (OAuth 2.0)
+Optional
+API authorisation — bonus marks
+Refresh Token
+Optional
+Session renewal — bonus marks
+Organization Management
+Optional
+Multi-tenancy — bonus marks
+Social Login (Google)
+Optional
+Bonus feature
+SMS OTP MFA
+Optional
+Requires Twilio integration
+
+
+2. System Architecture
+2.1 High-Level Architecture
+Layer
+Components
+Technology
+Presentation
+Admin Console, Login Portal
+React 18, React Router, Tailwind CSS
+API Gateway
+Auth API, Management API
+FastAPI (Python) or Express (Node.js)
+Business Logic
+Auth, App, Group, Token services
+Python 3.11+ / Node 20+
+Persistence
+Primary store, Session store
+PostgreSQL 15, Redis 7
+Security
+TLS, Rate limiting, Key management
+HTTPS, Redis, RS256 key pair
+
+2.2 Token Model
+
+★  CORE AUTH PRINCIPLE — Authentication is performed exclusively using the OIDC ID Token. Access Tokens and Refresh Tokens are optional extensions.
+
+The platform issues three token types. Only the ID Token is required.
+
+Token
+Type
+Required
+Purpose
+Lifetime
+ID Token
+OIDC JWT
+Yes — Core
+Proves who the user is; carries identity + RBAC claims
+15–60 min
+Access Token
+OAuth 2.0 JWT
+Optional
+Authorises calls to protected resource APIs
+15–60 min
+Refresh Token
+Opaque string
+Optional
+Obtains new tokens without re-login
+24 h – 30 days
+
+2.3 ID Token as Authentication Proof
+When a client application receives an ID Token after the OIDC Authorization Code flow, it MUST verify the token before trusting any claim inside it. The verification steps are:
+	•	Fetch the IdP's public key from GET /.well-known/jwks.json using the kid in the token header.
+	•	Verify the RS256 signature using the matching public key.
+	•	Confirm the iss (issuer) matches the expected IdP URL.
+	•	Confirm the aud (audience) matches the application's own client_id.
+	•	Confirm the exp (expiry) has not passed.
+	•	If the authorization request included a nonce, verify the nonce claim matches.
+Once verified, the application reads sub (user identity), email, roles, and permissions directly from the ID Token — no further IdP call is required.
+
+2.4 Service Boundaries
+	•	Auth API — Public-facing endpoints consumed by browsers and client apps: /authorize, /token, /userinfo, JWKS, OIDC discovery.
+	•	Management API — Admin-protected endpoints for the React Console: user CRUD, group management, application registry.
+
+
+3. Database Schema
+All tables use UUID primary keys and include created_at / updated_at timestamps. Soft-delete (deleted_at) is preferred over hard deletes for audit integrity. The org_id column is included in all tables to support optional multi-tenancy; when the Organization module is not implemented, all rows can share a single default org UUID.
+
+3.1 Organizations (supports optional multi-tenancy)
+CREATE TABLE organizations (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name          TEXT NOT NULL UNIQUE,
+  slug          TEXT NOT NULL UNIQUE,
+  display_name  TEXT,
+  status        TEXT NOT NULL DEFAULT 'active',
+  settings      JSONB DEFAULT '{}',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at    TIMESTAMPTZ
+);
+-- When Org module is not implemented: INSERT a single default org and use its id everywhere.
+
+3.2 Users
+CREATE TABLE users (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id          UUID NOT NULL REFERENCES organizations(id),
+  email           TEXT NOT NULL,
+  password_hash   TEXT NOT NULL,  -- bcrypt cost >= 12
+  first_name      TEXT,
+  last_name       TEXT,
+  status          TEXT NOT NULL DEFAULT 'active',
+  email_verified  BOOLEAN NOT NULL DEFAULT false,
+  mfa_enabled     BOOLEAN NOT NULL DEFAULT false,
+  mfa_secret      TEXT,
+  last_login_at   TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at      TIMESTAMPTZ,
+  UNIQUE (org_id, email)
+);
+
+3.3 Applications (OAuth Clients)
+CREATE TABLE applications (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id          UUID NOT NULL REFERENCES organizations(id),
+  name            TEXT NOT NULL,
+  client_id       TEXT NOT NULL UNIQUE,
+  client_secret   TEXT,              -- hashed; NULL for public clients (SPA/native)
+  app_type        TEXT NOT NULL DEFAULT 'web',  -- web | spa | native | m2m
+  redirect_uris   TEXT[] NOT NULL DEFAULT '{}',
+  allowed_scopes  TEXT[] NOT NULL DEFAULT '{openid,profile,email}',
+  logo_url        TEXT,
+  status          TEXT NOT NULL DEFAULT 'active',
+  id_token_lifetime INTEGER NOT NULL DEFAULT 3600,  -- seconds
+  -- Optional token settings (only relevant if Access/Refresh tokens are implemented)
+  access_token_lifetime  INTEGER DEFAULT 3600,
+  refresh_token_enabled  BOOLEAN NOT NULL DEFAULT false,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+3.4 Roles
+CREATE TABLE roles (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id      UUID NOT NULL REFERENCES organizations(id),
+  name        TEXT NOT NULL,
+  description TEXT,
+  permissions TEXT[] NOT NULL DEFAULT '{}',
+  is_system   BOOLEAN NOT NULL DEFAULT false,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (org_id, name)
+);
+
+3.5 Groups
+CREATE TABLE groups (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id      UUID NOT NULL REFERENCES organizations(id),
+  name        TEXT NOT NULL,
+  description TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (org_id, name)
+);
+
+CREATE TABLE group_members (
+  group_id  UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  user_id   UUID NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
+  added_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (group_id, user_id)
+);
+
+CREATE TABLE group_roles (
+  group_id    UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  role_id     UUID NOT NULL REFERENCES roles(id)  ON DELETE CASCADE,
+  assigned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (group_id, role_id)
+);
+
+3.6 Authorization Codes
+CREATE TABLE authorization_codes (
+  code            TEXT PRIMARY KEY,
+  user_id         UUID NOT NULL REFERENCES users(id),
+  client_id       TEXT NOT NULL,
+  org_id          UUID NOT NULL REFERENCES organizations(id),
+  redirect_uri    TEXT NOT NULL,
+  scopes          TEXT[] NOT NULL DEFAULT '{}',
+  code_challenge  TEXT,    -- PKCE S256 value
+  nonce           TEXT,    -- OIDC nonce for replay protection
+  expires_at      TIMESTAMPTZ NOT NULL,  -- now() + 10 minutes
+  used_at         TIMESTAMPTZ            -- set on exchange; prevents replay
+);
+
+3.7 ID Tokens (Required) + Optional Access / Refresh Tokens
+Note:  The token_type column stores 'id', 'access', or 'refresh'. Only 'id' tokens are required. Rows with type 'access' and 'refresh' are only stored when those optional modules are implemented.
+
+CREATE TABLE tokens (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  jti          TEXT NOT NULL UNIQUE,      -- JWT ID claim (id tokens and access tokens)
+  user_id      UUID NOT NULL REFERENCES users(id),
+  client_id    TEXT NOT NULL,
+  org_id       UUID NOT NULL REFERENCES organizations(id),
+  token_type   TEXT NOT NULL DEFAULT 'id',  -- 'id' (required) | 'access' | 'refresh'
+  scopes       TEXT[] NOT NULL DEFAULT '{}',
+  expires_at   TIMESTAMPTZ NOT NULL,
+  revoked      BOOLEAN NOT NULL DEFAULT false,
+  revoked_at   TIMESTAMPTZ,
+  revoke_reason TEXT,
+  issued_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_tokens_user   ON tokens(user_id);
+CREATE INDEX idx_tokens_client ON tokens(client_id);
+CREATE INDEX idx_tokens_jti    ON tokens(jti);
+
+3.8 Audit Log
+CREATE TABLE audit_log (
+  id            BIGSERIAL PRIMARY KEY,
+  org_id        UUID REFERENCES organizations(id),
+  actor_id      UUID,
+  actor_type    TEXT,
+  event_type    TEXT NOT NULL,
+  resource_type TEXT,
+  resource_id   TEXT,
+  metadata      JSONB DEFAULT '{}',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_audit_org   ON audit_log(org_id);
+CREATE INDEX idx_audit_event ON audit_log(event_type);
+CREATE INDEX idx_audit_time  ON audit_log(created_at DESC);
+
+
+4. Organization Management
+⚑  OPTIONAL MODULE — Organization Management  — Implementation of this section is not required for the core project. It earns bonus marks.
+
+An Organization is a tenant boundary. When this optional module is implemented, every resource — users, groups, roles, applications — is isolated within its Organization. When not implemented, a single default Organization is seeded and all resources belong to it.
+
+4.1 Creating an Organization
+Request
+POST /api/v1/admin/organizations
+Authorization: Bearer <super-admin-jwt>
+
+{
+  "name": "acme-corp",
+  "display_name": "Acme Corporation",
+  "settings": {
+    "allow_social_login": false,
+    "enforce_mfa": true,
+    "session_lifetime_seconds": 86400
+  }
+}
+
+Response
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "acme-corp",
+  "slug": "acme-corp",
+  "display_name": "Acme Corporation",
+  "status": "active",
+  "created_at": "2025-01-01T00:00:00Z"
+}
+
+4.2 Organization Lifecycle Endpoints
+Action
+Endpoint
+Effect
+Create
+POST /admin/organizations
+Provision new tenant
+List
+GET /admin/organizations
+All orgs (super-admin only)
+Get
+GET /admin/organizations/:id
+Org details
+Update
+PATCH /admin/organizations/:id
+Display name, settings
+Suspend
+POST /admin/organizations/:id/suspend
+Block all logins for org
+Reactivate
+POST /admin/organizations/:id/activate
+Lift suspension
+Delete
+DELETE /admin/organizations/:id
+Soft-delete; retains audit log
+
+4.3 Multi-Tenancy Isolation Rules
+	•	Users, Groups, Roles, and Applications are org-scoped. A user in org A cannot interact with resources in org B.
+	•	JWT tokens carry an org_id claim for tenant verification without an extra database call.
+	•	The same group or role name can exist in two orgs without conflict (scoped unique constraint).
+
+
+5. Application Management
+Applications (OAuth Clients) represent services that delegate authentication to the IdP. Each application is registered with a client_id and an exact list of permitted redirect URIs. The IdP will refuse any authorization request whose redirect_uri is not on this list.
+
+5.1 Creating an Application
+POST /api/v1/organizations/:org_id/applications
+Authorization: Bearer <org-admin-jwt>
+
+{
+  "name": "HR Portal",
+  "app_type": "web",
+  "redirect_uris": [
+    "https://hr.internal/auth/callback"
+  ],
+  "allowed_scopes": ["openid", "profile", "email"],
+  "id_token_lifetime": 3600
+}
+
+On success the API returns client_id and client_secret. The secret is shown only once and must be stored securely by the application.
+
+5.2 Application Types
+Type
+Description
+PKCE Required
+Client Secret
+web
+Server-side web application
+Optional
+Yes
+spa
+Single-page application (browser)
+Required
+No
+native
+Mobile / desktop native app
+Required
+No
+m2m
+Machine-to-machine service account
+No
+Yes (Client Credentials — optional)
+
+5.3 Application Lifecycle Endpoints
+Method
+Endpoint
+Description
+POST
+/organizations/:org_id/applications
+Register new application
+GET
+/organizations/:org_id/applications
+List applications
+GET
+/organizations/:org_id/applications/:id
+Get application details
+PATCH
+/organizations/:org_id/applications/:id
+Update name, URIs, scopes
+POST
+/organizations/:org_id/applications/:id/rotate-secret
+Rotate client secret
+POST
+/organizations/:org_id/applications/:id/disable
+Block new token issuance
+DELETE
+/organizations/:org_id/applications/:id
+Revoke all tokens; delete
+
+
+6. User Management & Group-Based RBAC
+Role-Based Access Control is implemented through Groups. Users are never assigned roles directly — users join Groups, and Groups hold Roles. This indirection makes bulk permission changes simple and produces clean audit trails.
+
+Design Principle:  Users → Groups → Roles → Permissions. Roles and permissions are resolved at ID Token issuance and embedded as claims. Client applications read claims from the token — no extra API call needed.
+
+6.1 Built-In Roles
+Built-in Role
+Permission Set
+Typical Assignee
+org:admin
+All permissions within org
+Org administrator
+app:manager
+Create/update/delete applications
+App team lead
+user:manager
+CRUD users, reset passwords
+HR / IT support
+group:manager
+Manage groups and membership
+Team lead
+viewer
+Read-only access to org resources
+Auditor, junior intern
+member
+Authenticate only; no admin rights
+End user
+
+6.2 Creating a Group
+POST /api/v1/organizations/:org_id/groups
+Authorization: Bearer <org-admin-jwt>
+
+{
+  "name": "engineering-backend",
+  "description": "Backend engineers with full API access"
+}
+
+6.3 Assigning Roles to a Group
+POST /api/v1/organizations/:org_id/groups/:group_id/roles
+Authorization: Bearer <org-admin-jwt>
+
+{ "role_ids": ["role-uuid-app-manager", "role-uuid-viewer"] }
+
+6.4 Adding Users to a Group
+POST /api/v1/organizations/:org_id/groups/:group_id/members
+Authorization: Bearer <org-admin-jwt>
+
+{ "user_ids": ["user-uuid-alice", "user-uuid-bob"] }
+
+6.5 Effective Permissions Resolution (at ID Token Issuance)
+	•	Fetch all groups the user belongs to.
+	•	Collect all roles assigned to those groups (de-duplicated).
+	•	Expand each role into its permission strings.
+	•	Embed the union set into the ID Token as roles and permissions claims.
+
+-- Run this query when issuing the ID Token
+SELECT DISTINCT unnest(r.permissions) AS permission
+FROM   group_members gm
+JOIN   group_roles   gr ON gr.group_id = gm.group_id
+JOIN   roles         r  ON r.id = gr.role_id
+WHERE  gm.user_id = :user_id
+  AND  r.org_id   = :org_id;
+
+6.6 Group Management Endpoints
+Method
+Endpoint
+Description
+GET
+/organizations/:org_id/groups
+List groups
+POST
+/organizations/:org_id/groups
+Create group
+PATCH
+/organizations/:org_id/groups/:id
+Update group
+DELETE
+/organizations/:org_id/groups/:id
+Delete group + memberships
+GET
+/organizations/:org_id/groups/:id/members
+List users in group
+POST
+/organizations/:org_id/groups/:id/members
+Add users (batch)
+DELETE
+/organizations/:org_id/groups/:id/members/:uid
+Remove user from group
+POST
+/organizations/:org_id/groups/:id/roles
+Assign roles to group
+DELETE
+/organizations/:org_id/groups/:id/roles/:rid
+Remove role from group
+
+
+7. Authentication & Authorization Flows
+★  CORE AUTH PRINCIPLE — Authentication is performed exclusively using the OIDC ID Token. Access Tokens and Refresh Tokens are optional extensions.
+
+7.1 Core Flow — OIDC Authorization Code + PKCE
+This is the only required authentication flow. The result is an OIDC ID Token which the client application uses as proof of the user's identity.
+
+	•	Client generates a code_verifier (random 43–128 char string) and derives code_challenge = BASE64URL(SHA256(code_verifier)).
+	•	Client generates a nonce (random string) and stores it locally for replay protection.
+	•	Client redirects user browser to:
+
+GET /api/v1/authorize
+  ?response_type=code
+  &client_id=<client-id>
+  &redirect_uri=https://app.internal/callback
+  &scope=openid profile email
+  &state=<random-csrf-state>
+  &nonce=<random-nonce>
+  &code_challenge=<s256-hash>
+  &code_challenge_method=S256
+
+	•	IdP displays the login page. User enters email and password.
+	•	IdP validates credentials, resolves RBAC claims via group query, stores authorization code (with nonce + code_challenge), then redirects browser to redirect_uri?code=...&state=...
+	•	Client verifies state matches. Client POSTs to /token:
+
+POST /api/v1/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code
+&code=<auth-code>
+&redirect_uri=https://app.internal/callback
+&client_id=<client-id>
+&code_verifier=<original-verifier>
+
+	•	IdP verifies code_challenge matches SHA256(code_verifier). IdP issues the ID Token. If the optional Access Token module is enabled, an access_token is also returned.
+	•	Client verifies the ID Token (see Section 2.3). Client reads sub, email, roles, permissions from the token claims.
+	•	Client stores the verified ID Token (e.g., in memory or HttpOnly cookie) and uses its claims for all in-app authorisation decisions.
+
+7.2 ID Token — Full Claim Set
+The ID Token is a signed JWT containing standard OIDC claims plus custom RBAC claims.
+
+// ID Token Header
+{
+  "alg": "RS256",
+  "kid": "key-id-1",
+  "typ": "JWT"
+}
+
+// ID Token Payload
+{
+  // Standard OIDC claims
+  "iss":            "https://auth.internal",           // Issuer
+  "sub":            "user-uuid-alice",                 // Subject (user ID)
+  "aud":            "client-id-hr-portal",             // Audience (must match client_id)
+  "iat":            1700000000,                        // Issued at
+  "exp":            1700003600,                        // Expiry
+  "nonce":          "abc123xyz",                       // Replay protection
+  "jti":            "unique-token-id",                 // JWT ID for revocation
+
+  // Identity claims (from openid, profile, email scopes)
+  "email":          "alice@acme.com",
+  "email_verified": true,
+  "name":           "Alice Smith",
+  "given_name":     "Alice",
+  "family_name":    "Smith",
+
+  // Custom RBAC claims (resolved from Groups)
+  "org_id":         "org-uuid-acme",                   // Present if Org module enabled
+  "roles":          ["app:manager", "viewer"],
+  "permissions":    ["app:create", "app:update", "user:read", "group:read"]
+}
+
+7.3 Token Endpoint Response
+The /token endpoint always returns an ID Token. Access and Refresh Tokens are only included when those optional modules are implemented and the application has refresh_token_enabled = true.
+
+// Core response (ID Token only)
+{
+  "id_token":    "<signed-jwt>",   // Always present
+  "token_type":  "Bearer",
+  "expires_in":  3600
+}
+
+// Extended response (optional Access + Refresh tokens enabled)
+{
+  "id_token":      "<signed-jwt>",
+  "access_token":  "<signed-jwt>",  // Optional
+  "refresh_token": "<opaque>",       // Optional
+  "token_type":    "Bearer",
+  "expires_in":    3600
+}
+
+7.4 OIDC UserInfo Endpoint
+The /userinfo endpoint accepts the ID Token as the Bearer credential and returns the user's current claims. This is useful when the client needs fresher claims than those in a cached ID Token.
+GET /api/v1/userinfo
+Authorization: Bearer <id-token>
+
+Response 200:
+{
+  "sub":            "user-uuid-alice",
+  "email":          "alice@acme.com",
+  "email_verified": true,
+  "name":           "Alice Smith",
+  "roles":          ["app:manager"],
+  "permissions":    ["app:create", "app:update"]
+}
+
+7.5 [Optional] Access Token & API Authorisation
+⚑  OPTIONAL MODULE — Access Token  — Implementation of this section is not required for the core project. It earns bonus marks.
+
+When implemented, resource servers (APIs) accept the Access Token in the Authorization: Bearer header to authorise API calls. The Access Token is a separate JWT from the ID Token and carries the same RBAC claims but with an audience set to the resource server, not the client app.
+
+Key Distinction:  The ID Token proves WHO the user is (authentication). The Access Token proves what the user may do at a specific API (authorisation). Do not use ID Tokens as access credentials for APIs.
+
+7.6 [Optional] Refresh Token
+⚑  OPTIONAL MODULE — Refresh Token  — Implementation of this section is not required for the core project. It earns bonus marks.
+
+Refresh tokens allow the client to obtain new ID Tokens (and optionally Access Tokens) without prompting the user to log in again. When implemented:
+	•	Refresh token rotation must be applied — each use issues a new refresh token and invalidates the old one.
+	•	Reuse detection: if an already-used refresh token is presented, revoke the entire token family immediately.
+	•	Refresh tokens are opaque strings — never JWTs — and must be stored server-side.
+
+POST /api/v1/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token
+&refresh_token=<opaque-refresh-token>
+&client_id=<client-id>
+
+
+8. Full API Reference
+8.1 Auth Endpoints
+Method
+Endpoint
+Auth Required
+Description
+POST
+/api/v1/login
+None
+Direct login — returns ID Token
+GET
+/api/v1/authorize
+None
+Start OIDC Authorization Code flow
+POST
+/api/v1/token
+Client / code
+Exchange auth code for ID Token
+POST
+/api/v1/logout
+ID Token (Bearer)
+Revoke session; invalidate token
+GET
+/api/v1/userinfo
+ID Token (Bearer)
+OIDC userinfo — returns current claims
+GET
+/api/v1/.well-known/openid-configuration
+None
+OIDC discovery document
+GET
+/api/v1/.well-known/jwks.json
+None
+Public keys for ID Token verification
+POST
+/api/v1/introspect  [Optional]
+Client credentials
+Optional: token introspection (RFC 7662)
+POST
+/api/v1/token (refresh_token) [Optional]
+ID Token
+Optional: exchange refresh token
+
+8.2 Organization Endpoints [Optional]
+Method
+Endpoint
+Description
+POST
+/api/v1/admin/organizations
+Create organization
+GET
+/api/v1/admin/organizations
+List all organizations
+GET
+/api/v1/admin/organizations/:id
+Get organization details
+PATCH
+/api/v1/admin/organizations/:id
+Update settings
+POST
+/api/v1/admin/organizations/:id/suspend
+Suspend org
+DELETE
+/api/v1/admin/organizations/:id
+Soft-delete org
+
+8.3 Application Endpoints
+Method
+Endpoint
+Description
+POST
+/api/v1/organizations/:org_id/applications
+Register application
+GET
+/api/v1/organizations/:org_id/applications
+List applications
+GET
+/api/v1/organizations/:org_id/applications/:id
+Get application
+PATCH
+/api/v1/organizations/:org_id/applications/:id
+Update application
+POST
+/api/v1/organizations/:org_id/applications/:id/rotate-secret
+Rotate secret
+DELETE
+/api/v1/organizations/:org_id/applications/:id
+Delete application
+
+8.4 User Endpoints
+Method
+Endpoint
+Description
+POST
+/api/v1/organizations/:org_id/users
+Create user
+GET
+/api/v1/organizations/:org_id/users
+List users (paginated)
+GET
+/api/v1/organizations/:org_id/users/:id
+Get user
+PATCH
+/api/v1/organizations/:org_id/users/:id
+Update user profile
+POST
+/api/v1/organizations/:org_id/users/:id/suspend
+Suspend user
+POST
+/api/v1/organizations/:org_id/users/:id/reset-password
+Trigger password reset
+DELETE
+/api/v1/organizations/:org_id/users/:id
+Soft-delete user
+
+8.5 Group & Role Endpoints
+Method
+Endpoint
+Description
+GET
+/api/v1/organizations/:org_id/groups
+List groups
+POST
+/api/v1/organizations/:org_id/groups
+Create group
+PATCH
+/api/v1/organizations/:org_id/groups/:id
+Update group
+DELETE
+/api/v1/organizations/:org_id/groups/:id
+Delete group
+POST
+/api/v1/organizations/:org_id/groups/:id/members
+Add users to group
+DELETE
+/api/v1/organizations/:org_id/groups/:id/members/:uid
+Remove user
+POST
+/api/v1/organizations/:org_id/groups/:id/roles
+Assign roles
+DELETE
+/api/v1/organizations/:org_id/groups/:id/roles/:rid
+Remove role
+GET
+/api/v1/organizations/:org_id/roles
+List roles
+POST
+/api/v1/organizations/:org_id/roles
+Create custom role
+PATCH
+/api/v1/organizations/:org_id/roles/:id
+Update role permissions
+
+
+9. Security Requirements
+9.1 Password Handling
+	•	Use bcrypt with cost factor >= 12.
+	•	Never store or log plaintext passwords.
+	•	Enforce: 8+ chars, mixed case, at least one digit or special character.
+	•	Account lockout after 5 consecutive failures (exponential back-off or 15-min lock).
+
+9.2 ID Token Security
+	•	Sign ID Tokens with RS256 (asymmetric). Never use HS256 — all services would share the signing secret.
+	•	Set exp to a short lifetime (15–60 minutes). Clients must re-authenticate when the ID Token expires.
+	•	Always include and verify the nonce claim to prevent replay attacks.
+	•	Store issued jti values; check against a revocation set on /userinfo and /introspect calls.
+	•	The aud claim MUST be the requesting application's client_id — reject tokens intended for other apps.
+
+9.3 Optional Token Security (Access / Refresh)
+⚑  OPTIONAL MODULE — Access Token & Refresh Token Security  — Implementation of this section is not required for the core project. It earns bonus marks.
+
+	•	Access Tokens should have a separate aud set to the resource server URL, not the client app.
+	•	Refresh tokens must be rotated on every use. Store only the hash, never the raw value.
+	•	Implement refresh token family revocation: if a reused refresh token is detected, revoke all tokens in the family.
+
+9.4 Transport & Infrastructure
+	•	Enforce HTTPS everywhere; reject HTTP at the load balancer.
+	•	CORS policy: allow only origins matching registered redirect_uri values.
+	•	Rate limiting: 10 login attempts per IP per minute; 100 /token requests per client per minute.
+	•	Validate redirect_uri as exact-match against the whitelist — no partial matches, no open redirects.
+	•	Set SameSite=Strict; Secure; HttpOnly on any session cookies.
+
+9.5 PKCE
+Mandatory:  SPA and native app types MUST include code_challenge (S256). The IdP MUST reject authorization requests from these types that omit code_challenge.
+
+9.6 MFA (Optional — Bonus)
+	•	Implement TOTP (RFC 6238) using pyotp or a similar library.
+	•	On MFA setup, display backup codes (store as bcrypt hashes).
+	•	Enforce org-wide via Organization settings enforce_mfa flag (requires Org module).
+
+
+10. React Admin Console
+The Admin Console is a React SPA that authenticates via the IdP (using the OIDC flow) and then calls the Management API using the obtained ID Token as the Bearer credential. It provides a full UI for managing all identity resources.
+
+10.1 Page Structure
+Route
+Page
+Capabilities
+/login
+IdP Login
+Admin authenticates; receives ID Token
+/dashboard
+Dashboard
+User count, active apps, recent events
+/organizations
+Org List
+[Optional] Super admin: create / suspend orgs
+/users
+User List
+Search, filter, paginate users
+/users/new
+Create User
+Email, name, group assignment
+/users/:id
+User Detail
+Edit, suspend, group view, reset password
+/groups
+Group List
+All groups with member counts
+/groups/new
+Create Group
+Name, description
+/groups/:id
+Group Detail
+Members table, assigned roles, add/remove
+/applications
+App List
+Registered OAuth clients
+/applications/new
+Register App
+Type, redirect URIs, scopes, token settings
+/applications/:id
+App Detail
+Edit, rotate secret, disable
+/roles
+Role List
+Built-in + custom roles and permissions
+/audit-log
+Audit Log
+Searchable, filterable event history
+
+10.2 Key React Components
+	•	AuthContext — holds verified ID Token, parsed claims, expiry timer, and silent re-login logic.
+	•	OrgSelector — top-level dropdown (visible only if Org module is enabled).
+	•	GroupMembershipTable — reusable table for viewing/editing group membership with inline add/remove.
+	•	RoleBadge — colour-coded pill for displaying role names.
+	•	PermissionCheckbox — checkbox grid for editing a role's permission strings.
+	•	AuditLogViewer — virtualised, filterable list of audit events.
+
+
+11. Additional Implementations
+11.1 Email Verification
+	•	On user creation, send a verification email with a signed HMAC-SHA256 link valid for 24 hours.
+	•	GET /api/v1/verify-email?token=<signed-token> sets email_verified = true.
+	•	When org setting require_email_verification is true, block login for unverified accounts.
+
+11.2 Password Reset Flow
+	•	POST /api/v1/password-reset/request  { email }
+	•	IdP generates single-use UUID token (DB row with 1-hour expiry) and emails the reset link.
+	•	POST /api/v1/password-reset/confirm  { token, new_password }
+	•	IdP validates token, hashes new password, saves it, invalidates all existing sessions.
+
+11.3 Session Management via ID Token
+Sessions are tied to the ID Token's jti. Since ID Tokens are short-lived, sessions naturally expire. For explicit revocation:
+	•	Store session metadata (jti, user_id, client_id, ip_address) in Redis with TTL = token expiry.
+	•	GET /api/v1/me/sessions — list active sessions for the current user.
+	•	DELETE /api/v1/me/sessions/:jti — revoke a specific session by its token's jti.
+	•	POST /api/v1/organizations/:org_id/users/:id/revoke-sessions — admin revokes all sessions for a user.
+
+11.4 JWKS Endpoint & Key Rotation
+	•	Publish public RS256 keys at GET /.well-known/jwks.json. This allows any client to verify ID Tokens locally without calling the IdP.
+	•	Each key has a kid; the same kid appears in every ID Token's header.
+	•	Key rotation: publish both old and new keys for a 24-hour overlap window, then retire the old key.
+
+11.5 OIDC Discovery Document
+Publish /.well-known/openid-configuration so clients can auto-configure. Required fields: issuer, authorization_endpoint, token_endpoint, userinfo_endpoint, jwks_uri, scopes_supported, id_token_signing_alg_values_supported (must include RS256).
+
+11.6 Audit Logging
+Event Type
+Triggered By
+Key Metadata
+user.login.success
+Credential validation ok
+IP, user-agent, client_id
+user.login.failure
+Credential validation fail
+IP, attempted email
+user.created
+POST /users
+actor_id, new user_id
+user.suspended
+POST /users/:id/suspend
+actor_id, reason
+group.member_added
+POST /groups/:id/members
+group_id, user_ids
+group.role_assigned
+POST /groups/:id/roles
+group_id, role_id
+id_token.issued
+POST /token (id type)
+jti, client_id, scopes
+token.revoked
+POST /logout or admin action
+jti, revoke_reason
+app.created
+POST /applications
+client_id, app_type
+app.secret_rotated
+POST /applications/:id/rotate-secret
+client_id, actor_id
+
+11.7 Rate Limiting & Abuse Protection
+	•	Sliding-window rate limiter using Redis INCR + EXPIRE pattern.
+	•	/login: 10 requests per IP per minute.  /token: 100 requests per client_id per minute.
+	•	Return 429 Too Many Requests with Retry-After header when exceeded.
+
+11.8 Health & Observability
+	•	GET /health — liveness probe; 200 if process is running.
+	•	GET /health/ready — readiness probe; checks PostgreSQL and Redis.
+	•	GET /metrics — optional Prometheus metrics: id_tokens_issued_total, login_failures_total, active_sessions_gauge.
+
+
+12. Deliverables & Evaluation
+12.1 Required Deliverables
+Deliverable
+Description
+Format
+IdP Service
+OIDC Authorization Code + PKCE flow; ID Token issuance; JWKS; RBAC resolution
+FastAPI or Express repo
+Admin Console
+React SPA: user, group, role, app management
+React repo
+2 Demo Client Apps
+Two apps authenticating via this IdP and reading ID Token claims
+Any framework
+DB Migration Scripts
+Full schema with indexes and seed data
+SQL / Alembic / Flyway
+API Documentation
+All endpoints with request/response examples; ID Token claim reference
+OpenAPI 3.1 / Swagger
+Security Checklist
+Evidence of RS256 signing, PKCE, rate limiting, nonce validation
+Markdown or PDF
+README
+Setup guide, arch notes, ID Token verification walkthrough
+Markdown
+
+12.2 Evaluation Criteria
+Criteria
+Weight
+What Reviewers Check
+OIDC / Authentication Flow
+30%
+Auth Code + PKCE works; ID Token issued with correct claims; nonce validated
+ID Token Integrity
+20%
+RS256 signed; iss/aud/exp/nonce verified; JWKS published
+RBAC in ID Token
+15%
+Groups → roles → permissions correctly embedded in token claims
+Code Quality
+15%
+Clean structure; error handling; no secrets in code
+Security Controls
+10%
+bcrypt cost; PKCE enforced; redirect_uri exact-match; rate limiting
+UI/UX (Admin Console)
+5%
+Functional; group/role management works
+Documentation
+5%
+OpenAPI complete; README includes token verification steps
+[Bonus] Org Management
++5%
+Optional module implemented and functional
+[Bonus] Access + Refresh
++5%
+Optional tokens implemented with rotation and revocation
+
+
+13. Development Setup
+13.1 Prerequisites
+	•	Python 3.11+ (FastAPI) or Node.js 20+ (Express)
+	•	PostgreSQL 15+
+	•	Redis 7+
+	•	Node.js 20+ and npm (React Admin Console)
+	•	Docker & Docker Compose (recommended)
+
+13.2 Quick Start (Docker Compose)
+git clone https://github.com/your-org/internal-idp.git && cd internal-idp
+cp .env.example .env
+docker compose up --build
+docker compose exec api python -m alembic upgrade head
+docker compose exec api python scripts/seed.py   # seeds default org + admin user
+open http://localhost:3000                        # Admin Console
+
+13.3 Environment Variables
+Variable
+Description
+Example
+DATABASE_URL
+PostgreSQL connection string
+postgresql://user:pass@localhost/idp
+REDIS_URL
+Redis connection string
+redis://localhost:6379
+JWT_PRIVATE_KEY_PATH
+Path to RS256 private key PEM
+/secrets/private.pem
+JWT_PUBLIC_KEY_PATH
+Path to RS256 public key PEM
+/secrets/public.pem
+ISSUER_URL
+Issuer claim value (iss)
+https://auth.internal
+ID_TOKEN_LIFETIME
+ID Token validity in seconds
+3600
+ADMIN_SECRET
+Bootstrap super-admin password
+(set in .env; never commit)
+SMTP_HOST
+Email server for verification
+smtp.mailtrap.io
+RATE_LIMIT_ENABLED
+Toggle rate limiting
+true
+ACCESS_TOKENS_ENABLED
+[Optional] Enable Access Tokens
+false
+REFRESH_TOKENS_ENABLED
+[Optional] Enable Refresh Tokens
+false
+
+
+14. Glossary
+Term
+Definition
+IdP
+Identity Provider — a service that authenticates users and issues identity tokens.
+OIDC
+OpenID Connect — an identity layer on top of OAuth 2.0; defines the ID Token.
+ID Token
+A signed JWT issued by the IdP after authentication. Contains the user's identity and RBAC claims. The primary (and only required) token in this platform.
+OAuth 2.0
+An authorization framework (RFC 6749) enabling delegated access.
+JWT
+JSON Web Token (RFC 7519) — a compact, signed token encoding claims.
+PKCE
+Proof Key for Code Exchange (RFC 7636) — required for public clients.
+RBAC
+Role-Based Access Control — permissions assigned via Groups, embedded in the ID Token.
+nonce
+A random value included in the authorization request and mirrored in the ID Token to prevent replay attacks.
+iss
+JWT issuer claim — the IdP URL. Clients verify this matches the expected value.
+sub
+JWT subject claim — the user's unique identifier.
+aud
+JWT audience claim — must equal the application's client_id.
+jti
+JWT ID — unique per-token identifier used for revocation tracking.
+JWKS
+JSON Web Key Set — the IdP's public keys, used by clients to verify ID Token signatures.
+Access Token
+[Optional] An OAuth 2.0 JWT authorising calls to a specific API/resource server.
+Refresh Token
+[Optional] Opaque credential used to renew ID/Access tokens without re-login.
+Organization
+[Optional] Tenant boundary; all resources are scoped to an org.
+Group
+A named collection of users; the bridge between users and roles.
+Role
+A named set of permissions assigned to groups, then embedded in tokens.
+client_id
+Public identifier for a registered application.
+client_secret
+Confidential credential for server-side (web/m2m) applications.
+

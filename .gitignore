@@ -1,0 +1,84 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+backend/secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+backend/venv/
+
+# Python packaging / build outputs
+build/
+dist/
+site/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Node / frontend
+node_modules/
+**/node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.parcel-cache/
+.vite/
+coverage/
+frontend/dist/
+clients/*/dist/
+clients/*/build/
+
+# TypeScript / JS build metadata
+*.tsbuildinfo
+
+# Local databases / runtime files
+*.db
+*.sqlite
+*.sqlite3
+*.pid
+*.pid.lock
+
+# Tooling caches
+.cache/
+.eslintcache
+
