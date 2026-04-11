@@ -1,14 +1,41 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { PRODUCT_NAME, PRODUCT_TAGLINE } from '../branding';
 import productLogo from '../assets/logo.png';
-import loaderGif from '../assets/loader.gif';
+
+const LOTTIE_SCRIPT_ID = 'dotlottie-player-script';
+const LOTTIE_SCRIPT_SRC = 'https://unpkg.com/@lottiefiles/dotlottie-wc@0.9.10/dist/dotlottie-wc.js';
+const LOTTIE_ANIMATION_SRC = 'https://lottie.host/b67e10d3-ef0a-434e-add8-778cb0a7ba43/fJmxObJ6DS.lottie';
 
 export default function LoadingScreen() {
+  useEffect(() => {
+    if (document.getElementById(LOTTIE_SCRIPT_ID)) {
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.id = LOTTIE_SCRIPT_ID;
+    script.type = 'module';
+    script.src = LOTTIE_SCRIPT_SRC;
+    document.head.appendChild(script);
+
+    return () => {
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+    };
+  }, []);
+
   return (
     <div className="app-loading-screen" role="status" aria-live="polite">
       <div className="app-loading-card">
         <img src={productLogo} alt={PRODUCT_NAME} className="app-loading-logo" />
-        <img src={loaderGif} alt="Loading" className="app-loading-gif" />
+        <dotlottie-wc
+          src={LOTTIE_ANIMATION_SRC}
+          className="app-loading-gif"
+          style={{ width: '8.5rem', height: '8.5rem' }}
+          autoplay
+          loop
+        />
         <div className="app-loading-copy">
           <h1>{PRODUCT_NAME}</h1>
           <p>{PRODUCT_TAGLINE}</p>

@@ -202,7 +202,6 @@ def render_authorize_mfa_page(
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MFA - {safe_client_name}</title>
-    <script src="{html.escape(LOTTIE_SCRIPT_SRC)}" type="module"></script>
     <style>{_authorize_brand_styles()}</style>
 </head>
 <body>
@@ -225,7 +224,6 @@ def render_authorize_mfa_page(
                     <ul class="scope-list">{scope_items}</ul>
                 </div>
             </div>
-            {_authorize_lottie_block()}
         </section>
         <section class="signin">
             <div class="brand-row">

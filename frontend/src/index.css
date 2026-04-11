@@ -508,6 +508,74 @@
   color: #64748b;
 }
 
+.not-found-shell {
+  position: relative;
+  overflow: hidden;
+}
+
+.not-found-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.not-found-brand h1 {
+  font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #0f172a;
+}
+
+.not-found-brand p {
+  margin-top: 0.15rem;
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
+.not-found-animation {
+  display: block;
+  max-width: 100%;
+}
+
+.not-found-copy {
+  margin-top: -0.5rem;
+  max-width: 42rem;
+  text-align: center;
+}
+
+.not-found-code {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: rgba(255, 255, 255, 0.84);
+  padding: 0.45rem 0.9rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: #6b7280;
+}
+
+.not-found-copy h2 {
+  margin-top: 1rem;
+  font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(2.1rem, 4vw, 3.4rem);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.05em;
+  color: #0f172a;
+}
+
+.not-found-copy p {
+  margin-top: 1rem;
+  font-size: 1rem;
+  line-height: 1.8;
+  color: #64748b;
+}
+
 .landing-noise {
   position: absolute;
   inset: 0;

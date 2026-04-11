@@ -32,6 +32,7 @@ import Settings from './pages/Settings';
 import UpgradeAccess from './pages/UpgradeAccess';
 import MyApps from './pages/MyApps';
 import SearchResults from './pages/SearchResults';
+import NotFound from './pages/NotFound';
 
 export default function App() {
   const { isAuthenticated } = useAuth();
@@ -83,6 +84,7 @@ export default function App() {
         <Route path="email-deliveries" element={secure(<EmailDeliveries />, ['audit:read'])} />
         <Route path="upgrade-access" element={secure(<UpgradeAccess />, ['org:read'])} />
       </Route>
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 }
