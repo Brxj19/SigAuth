@@ -26,13 +26,28 @@ function getLaunchUrl(app) {
 }
 
 export default function Applications() {
-  const { orgId, claims } = useAuth();
+  const { orgId, claims, isSuperAdmin } = useAuth();
   const [apps, setApps] = useState([]);
   const [cursor, setCursor] = useState(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const canCreateApplications = userHasPermission(claims, 'app:create');
+  const [permissionMessage, setPermissionMessage] = useState('');
+  const canCreateApplications = isSuperAdmin || userHasPermission(claims, 'app:create');
+  const canLaunchApplications = isSuperAdmin || userHasPermission(claims, 'app:update');
+
+  const launchApplication = (launchUrl, appName) => {
+    if (!canLaunchApplications) {
+      setPermissionMessage('You do not have permission to launch applications from the organization directory.');
+      return;
+    }
+    if (!launchUrl) {
+      setPermissionMessage(`No launch URL is configured for ${appName}.`);
+      return;
+    }
+    setPermissionMessage('');
+    window.open(launchUrl, '_blank', 'noopener,noreferrer');
+  };
 
   const fetchApps = async (loadMore = false) => {
     if (!orgId) return;
@@ -64,13 +79,31 @@ export default function Applications() {
         eyebrow="Applications"
         title="Application Directory"
         description="Register and manage SSO connections. Launch and inspect each application in one click."
-        actions={canCreateApplications ? (
-          <Link className="btn-primary" to="/applications/new">
-            <PlusIcon className="h-4 w-4" />
-            Add application
-          </Link>
-        ) : null}
+        actions={
+          canCreateApplications ? (
+            <Link className="btn-primary" to="/applications/new">
+              <PlusIcon className="h-4 w-4" />
+              Add application
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setPermissionMessage('You do not have permission to create applications.')}
+              className="btn-primary cursor-not-allowed justify-center opacity-55"
+              aria-disabled="true"
+            >
+              <PlusIcon className="h-4 w-4" />
+              Add application
+            </button>
+          )
+        }
       />
+
+      {permissionMessage ? (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {permissionMessage}
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {apps.map((app) => {
@@ -109,11 +142,17 @@ export default function Applications() {
                 Open
               </Link>
               <button
-                className="btn-primary flex-1 justify-center"
+                className={`btn-primary flex-1 justify-center ${canLaunchApplications ? '' : 'cursor-not-allowed opacity-55'}`}
                 type="button"
-                onClick={() => window.open(launchUrl, '_blank', 'noopener,noreferrer')}
-                disabled={!launchUrl}
-                title={launchUrl ? `Launch ${app.name}` : 'No redirect URI configured'}
+                onClick={() => launchApplication(launchUrl, app.name)}
+                aria-disabled={!canLaunchApplications || !launchUrl}
+                title={
+                  !canLaunchApplications
+                    ? 'You do not have permission to launch this application'
+                    : launchUrl
+                      ? `Launch ${app.name}`
+                      : 'No redirect URI configured'
+                }
               >
                 Launch
               </button>

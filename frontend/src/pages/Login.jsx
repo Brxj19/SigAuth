@@ -103,9 +103,9 @@ export default function Login() {
   };
 
   return (
-    <div className="auth-cosmos-shell flex min-h-screen items-center justify-center px-4 py-10">
+    <div className="auth-cosmos-shell flex min-h-screen items-start justify-center px-4 py-6 sm:py-10 md:items-center">
       <AuthParticleCanvas />
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 shadow-[0_20px_48px_rgba(15,23,42,0.08)]">
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-[0_20px_48px_rgba(15,23,42,0.08)] sm:p-8">
         <div className="mb-7 flex items-center gap-3">
           <ProductMark className="h-10 w-10" />
           <div>

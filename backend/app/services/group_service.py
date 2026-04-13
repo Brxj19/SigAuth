@@ -17,7 +17,17 @@ from app.utils.pagination import encode_cursor, decode_cursor, build_pagination_
 
 async def create_group(db: AsyncSession, org_id: UUID, name: str, description: Optional[str] = None) -> Group:
     """Create a new group."""
-    group = Group(org_id=org_id, name=name, description=description)
+    normalized_name = (name or '').strip()
+    if not normalized_name:
+        raise ValueError("Group name is required.")
+
+    existing = await db.execute(
+        select(Group).where(Group.org_id == org_id, Group.name == normalized_name)
+    )
+    if existing.scalar_one_or_none():
+        raise ValueError("A group with this name already exists.")
+
+    group = Group(org_id=org_id, name=normalized_name, description=(description.strip() if isinstance(description, str) else description))
     db.add(group)
     await db.flush()
     return group
@@ -94,9 +104,21 @@ async def update_group(db: AsyncSession, group_id: UUID, name: Optional[str] = N
     if not group:
         return None
     if name is not None:
-        group.name = name
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise ValueError("Group name is required.")
+        existing = await db.execute(
+            select(Group).where(
+                Group.org_id == group.org_id,
+                Group.name == normalized_name,
+                Group.id != group.id,
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise ValueError("A group with this name already exists.")
+        group.name = normalized_name
     if description is not None:
-        group.description = description
+        group.description = description.strip() or None
     group.updated_at = datetime.now(timezone.utc)
     await db.flush()
     return group

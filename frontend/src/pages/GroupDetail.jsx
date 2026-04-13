@@ -17,13 +17,22 @@ export default function GroupDetail() {
   const [allRoles, setAllRoles] = useState([]);
   const [selectedRole, setSelectedRole] = useState('');
   const [tab, setTab] = useState('members');
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const fetchGroup = async () => {
     try {
       // Groups endpoint returns group in list, get it specifically
       const res = await api.get(`/api/v1/organizations/${orgId}/groups?limit=100`);
       const found = (res.data.data || []).find(g => g.id === id);
-      if (found) setGroup(found);
+      if (found) {
+        setGroup(found);
+        setEditName(found.name || '');
+        setEditDescription(found.description || '');
+      }
       else navigate('/groups');
     } catch { navigate('/groups'); }
   };
@@ -71,6 +80,25 @@ export default function GroupDetail() {
     navigate('/groups');
   };
 
+  const saveGroupDetails = async () => {
+    setSaveError('');
+    setSaving(true);
+    try {
+      const res = await api.patch(`/api/v1/organizations/${orgId}/groups/${id}`, {
+        name: editName,
+        description: editDescription,
+      });
+      setGroup(res.data);
+      setEditName(res.data.name || '');
+      setEditDescription(res.data.description || '');
+      setEditing(false);
+    } catch (err) {
+      setSaveError(err.response?.data?.detail?.error_description || 'Unable to update group.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!group) return <div className="text-center py-20 text-dark-400">Loading...</div>;
 
   const assignedRoleIds = new Set(roles.map(r => r.id));
@@ -80,6 +108,7 @@ export default function GroupDetail() {
   const canManageMembers = hasPermission(claims, 'group:member:add') && hasPermission(claims, 'group:member:remove');
   const canAssignRoles = hasPermission(claims, 'role:update');
   const canDeleteGroup = hasPermission(claims, 'group:delete');
+  const canUpdateGroup = hasPermission(claims, 'group:update');
   const blockProtectedGroupActions = groupIsProtected && !actorCanManageProtectedGroup;
 
   return (
@@ -93,12 +122,75 @@ export default function GroupDetail() {
         eyebrow="Group"
         title={group.name}
         description={group.description || 'Manage memberships and effective roles for this directory group.'}
-        actions={canDeleteGroup && !blockProtectedGroupActions ? <button onClick={handleDelete} className="btn-danger text-sm">Delete Group</button> : null}
+        actions={
+          <div className="flex flex-wrap items-center gap-3">
+            {canUpdateGroup && !blockProtectedGroupActions ? (
+              <button
+                onClick={() => {
+                  setEditing((value) => !value);
+                  setSaveError('');
+                  setEditName(group.name || '');
+                  setEditDescription(group.description || '');
+                }}
+                className="btn-secondary text-sm"
+              >
+                {editing ? 'Cancel Edit' : 'Edit Group'}
+              </button>
+            ) : null}
+            {canDeleteGroup && !blockProtectedGroupActions ? <button onClick={handleDelete} className="btn-danger text-sm">Delete Group</button> : null}
+          </div>
+        }
       />
 
       {blockProtectedGroupActions ? (
         <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           This group grants administrator access. Only organization admins can change its memberships, roles, or delete it.
+        </div>
+      ) : null}
+
+      {editing && canUpdateGroup && !blockProtectedGroupActions ? (
+        <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">Group name</label>
+              <input
+                className="input-field"
+                value={editName}
+                onChange={(event) => setEditName(event.target.value)}
+                placeholder="engineering"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">Description</label>
+              <input
+                className="input-field"
+                value={editDescription}
+                onChange={(event) => setEditDescription(event.target.value)}
+                placeholder="Describe this group"
+              />
+            </div>
+          </div>
+          {saveError ? (
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {saveError}
+            </div>
+          ) : null}
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button onClick={saveGroupDetails} disabled={saving || !editName.trim()} className="btn-primary text-sm">
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+            <button
+              onClick={() => {
+                setEditing(false);
+                setSaveError('');
+                setEditName(group.name || '');
+                setEditDescription(group.description || '');
+              }}
+              className="btn-secondary text-sm"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       ) : null}
 

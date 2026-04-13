@@ -288,10 +288,13 @@
 
 /* Spec-specific sign-in/sign-up cosmos scene */
 .auth-cosmos-shell {
-  position: fixed;
-  inset: 0;
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
   background: #ffffff;
   isolation: isolate;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .ambient-backdrop {

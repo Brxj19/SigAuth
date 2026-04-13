@@ -4,7 +4,7 @@ import productLogo from '../assets/logo.png';
 
 const LOTTIE_SCRIPT_ID = 'dotlottie-player-script';
 const LOTTIE_SCRIPT_SRC = 'https://unpkg.com/@lottiefiles/dotlottie-wc@0.9.10/dist/dotlottie-wc.js';
-const LOTTIE_ANIMATION_SRC = 'https://lottie.host/b67e10d3-ef0a-434e-add8-778cb0a7ba43/fJmxObJ6DS.lottie';
+const LOTTIE_ANIMATION_SRC = 'https://lottie.host/cf41c358-bee8-4788-8f67-d1cd1751801b/hBI0ToTorV.lottie';
 
 export default function LoadingScreen() {
   useEffect(() => {

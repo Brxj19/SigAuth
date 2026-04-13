@@ -49,9 +49,9 @@ export default function Signup() {
   };
 
   return (
-    <div className="auth-cosmos-shell flex min-h-screen items-center justify-center p-4">
+    <div className="auth-cosmos-shell flex min-h-screen items-start justify-center px-4 py-6 sm:py-10 md:items-center">
       <AuthParticleCanvas />
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 shadow-[0_20px_48px_rgba(15,23,42,0.08)]">
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-[0_20px_48px_rgba(15,23,42,0.08)] sm:p-8">
         <div className="mb-6 flex items-center gap-3">
           <ProductMark className="h-10 w-10" />
           <div>
@@ -101,7 +101,7 @@ export default function Signup() {
               <p className="mt-1 text-xs text-gray-500">Lowercase letters, numbers, hyphens only.</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-gray-700">First Name</label>
                 <input className="input-field" value={form.admin_first_name} onChange={(e) => setForm((f) => ({ ...f, admin_first_name: e.target.value }))} />

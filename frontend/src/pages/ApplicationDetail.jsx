@@ -5,6 +5,7 @@ import api from '../api/client';
 import { ArrowLeftIcon, PlusIcon, XIcon } from '../components/Icons';
 import PageHeader from '../components/PageHeader';
 import CopyButton from '../components/CopyButton';
+import { hasPermission as userHasPermission } from '../utils/permissions';
 
 const DEFAULT_SCOPES = ['openid', 'profile', 'email'];
 const SCOPE_PATTERN = /^[a-zA-Z0-9:._-]+$/;
@@ -23,7 +24,7 @@ function normalizeApplicationForm(app) {
 
 export default function ApplicationDetail() {
   const { id } = useParams();
-  const { orgId } = useAuth();
+  const { orgId, claims, isSuperAdmin } = useAuth();
   const navigate = useNavigate();
   const [app, setApp] = useState(null);
   const [newSecret, setNewSecret] = useState(null);
@@ -41,6 +42,14 @@ export default function ApplicationDetail() {
   const [isEditingConfig, setIsEditingConfig] = useState(false);
   const [redirectInput, setRedirectInput] = useState('');
   const [scopeInput, setScopeInput] = useState('');
+  const [permissionMessage, setPermissionMessage] = useState('');
+
+  const canUpdateApp = isSuperAdmin || userHasPermission(claims, 'app:update');
+  const canDeleteApp = isSuperAdmin || userHasPermission(claims, 'app:delete');
+
+  const denyAction = (message = 'You do not have permission to perform this action.') => {
+    setPermissionMessage(message);
+  };
 
   const fetchApp = async () => {
     try {
@@ -87,6 +96,10 @@ export default function ApplicationDetail() {
   }, [id, orgId]);
 
   const handleRotateSecret = async () => {
+    if (!canUpdateApp) {
+      denyAction('You do not have permission to rotate application secrets.');
+      return;
+    }
     if (!confirm('Rotate client secret? The old secret will stop working immediately.')) return;
     try {
       const res = await api.post(`/api/v1/organizations/${orgId}/applications/${id}/rotate-secret`);
@@ -95,18 +108,30 @@ export default function ApplicationDetail() {
   };
 
   const handleDisable = async () => {
+    if (!canUpdateApp) {
+      denyAction('You do not have permission to disable applications.');
+      return;
+    }
     if (!confirm('Disable this application?')) return;
     await api.post(`/api/v1/organizations/${orgId}/applications/${id}/disable`);
     fetchApp();
   };
 
   const handleDelete = async () => {
+    if (!canDeleteApp) {
+      denyAction('You do not have permission to delete applications.');
+      return;
+    }
     if (!confirm('Delete this application? All tokens will be revoked.')) return;
     await api.delete(`/api/v1/organizations/${orgId}/applications/${id}`);
     navigate('/applications');
   };
 
   const assignGroup = async () => {
+    if (!canUpdateApp) {
+      denyAction('You do not have permission to change application group assignments.');
+      return;
+    }
     if (!selectedGroup) return;
     try {
       await api.post(`/api/v1/organizations/${orgId}/applications/${id}/groups`, { group_ids: [selectedGroup] });
@@ -116,6 +141,10 @@ export default function ApplicationDetail() {
   };
 
   const removeGroup = async (groupId) => {
+    if (!canUpdateApp) {
+      denyAction('You do not have permission to change application group assignments.');
+      return;
+    }
     if (!confirm('Remove this group from the application?')) return;
     try {
       await api.delete(`/api/v1/organizations/${orgId}/applications/${id}/groups/${groupId}`);
@@ -128,6 +157,10 @@ export default function ApplicationDetail() {
   };
 
   const addRoleMapping = async () => {
+    if (!canUpdateApp) {
+      denyAction('You do not have permission to manage application role mappings.');
+      return;
+    }
     const sourceValue = mappingForm.source_value.trim();
     const appRole = mappingForm.app_role.trim();
     if (!sourceValue || !appRole) {
@@ -152,6 +185,10 @@ export default function ApplicationDetail() {
   };
 
   const removeRoleMapping = async (mappingId) => {
+    if (!canUpdateApp) {
+      denyAction('You do not have permission to manage application role mappings.');
+      return;
+    }
     if (!confirm('Remove this role mapping?')) return;
     try {
       await api.delete(`/api/v1/organizations/${orgId}/applications/${id}/role-mappings/${mappingId}`);
@@ -236,7 +273,12 @@ export default function ApplicationDetail() {
   };
 
   const handleEditStart = () => {
+    if (!canUpdateApp) {
+      denyAction('You do not have permission to edit application configuration.');
+      return;
+    }
     setConfigError('');
+    setPermissionMessage('');
     setConfigForm(normalizeApplicationForm(app));
     setRedirectInput('');
     setScopeInput('');
@@ -245,6 +287,7 @@ export default function ApplicationDetail() {
 
   const handleEditCancel = () => {
     setConfigError('');
+    setPermissionMessage('');
     setConfigForm(normalizeApplicationForm(app));
     setRedirectInput('');
     setScopeInput('');
@@ -252,6 +295,10 @@ export default function ApplicationDetail() {
   };
 
   const handleSaveConfig = async () => {
+    if (!canUpdateApp) {
+      denyAction('You do not have permission to edit application configuration.');
+      return;
+    }
     setSavingConfig(true);
     setConfigError('');
     try {
@@ -288,13 +335,19 @@ export default function ApplicationDetail() {
         actions={
           <div className="flex gap-2">
             {['web', 'm2m'].includes(app.app_type) && (
-              <button onClick={handleRotateSecret} className="btn-secondary text-sm">Rotate secret</button>
+              <button onClick={handleRotateSecret} className={`btn-secondary text-sm ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp}>Rotate secret</button>
             )}
-            {app.status === 'active' && <button onClick={handleDisable} className="btn-danger text-sm">Disable</button>}
-            <button onClick={handleDelete} className="btn-danger text-sm">Delete</button>
+            {app.status === 'active' && <button onClick={handleDisable} className={`btn-danger text-sm ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp}>Disable</button>}
+            <button onClick={handleDelete} className={`btn-danger text-sm ${canDeleteApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canDeleteApp}>Delete</button>
           </div>
         }
       />
+
+      {permissionMessage ? (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {permissionMessage}
+        </div>
+      ) : null}
 
       <div className="mb-8 flex flex-wrap items-center gap-3">
         <span className={typeColors[app.app_type] || 'badge-gray'}>{app.app_type}</span>
@@ -344,7 +397,7 @@ export default function ApplicationDetail() {
                   value={configForm.name}
                   onChange={e => updateConfigField('name', e.target.value)}
                   className="input-field"
-                  disabled={!isEditingConfig}
+                  disabled={!isEditingConfig || !canUpdateApp}
                 />
               </dd>
             </div>
@@ -356,7 +409,7 @@ export default function ApplicationDetail() {
                   onChange={e => updateConfigField('logo_url', e.target.value)}
                   className="input-field"
                   placeholder="https://example.com/logo.svg"
-                  disabled={!isEditingConfig}
+                  disabled={!isEditingConfig || !canUpdateApp}
                 />
               </dd>
             </div>
@@ -375,9 +428,9 @@ export default function ApplicationDetail() {
                     }}
                     className="input-field font-mono text-xs"
                     placeholder="https://app.example.com/callback"
-                    disabled={!isEditingConfig}
+                    disabled={!isEditingConfig || !canUpdateApp}
                   />
-                  <button type="button" onClick={addRedirectUri} className="btn-secondary" disabled={!isEditingConfig}>Add</button>
+                  <button type="button" onClick={addRedirectUri} className={`btn-secondary ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} disabled={!isEditingConfig || !canUpdateApp}>Add</button>
                 </div>
                 <div className="mt-3 space-y-2">
                   {configForm.redirect_uris.map(uri => (
@@ -385,7 +438,7 @@ export default function ApplicationDetail() {
                       <span className="font-mono text-xs text-slate-700 break-all">{uri}</span>
                       <div className="flex items-center gap-2">
                         <CopyButton value={uri} label="Copy redirect URI" />
-                        <button type="button" onClick={() => removeRedirectUri(uri)} className="text-red-700 hover:text-red-800" disabled={!isEditingConfig}>
+                        <button type="button" onClick={() => removeRedirectUri(uri)} className="text-red-700 hover:text-red-800" disabled={!isEditingConfig || !canUpdateApp}>
                           <XIcon className="h-4 w-4" />
                         </button>
                       </div>
@@ -412,9 +465,9 @@ export default function ApplicationDetail() {
                     }}
                     className="input-field"
                     placeholder="Type scope and press Enter"
-                    disabled={!isEditingConfig}
+                    disabled={!isEditingConfig || !canUpdateApp}
                   />
-                  <button type="button" onClick={() => addScope()} className="btn-secondary" disabled={!isEditingConfig}>Add</button>
+                  <button type="button" onClick={() => addScope()} className={`btn-secondary ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} disabled={!isEditingConfig || !canUpdateApp}>Add</button>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {DEFAULT_SCOPES.map(scope => (
@@ -423,7 +476,7 @@ export default function ApplicationDetail() {
                       type="button"
                       onClick={() => addScope(scope)}
                       className="badge-gray hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-                      disabled={!isEditingConfig}
+                      disabled={!isEditingConfig || !canUpdateApp}
                     >
                       + {scope}
                     </button>
@@ -433,7 +486,7 @@ export default function ApplicationDetail() {
                   {configForm.allowed_scopes.map(scope => (
                     <span key={scope} className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
                       {scope}
-                      <button type="button" onClick={() => removeScope(scope)} className="text-blue-700 hover:text-blue-900" disabled={!isEditingConfig}>
+                      <button type="button" onClick={() => removeScope(scope)} className="text-blue-700 hover:text-blue-900" disabled={!isEditingConfig || !canUpdateApp}>
                         <XIcon className="h-3.5 w-3.5" />
                       </button>
                     </span>
@@ -455,7 +508,7 @@ export default function ApplicationDetail() {
                     value={configForm.id_token_lifetime}
                     onChange={e => updateConfigField('id_token_lifetime', e.target.value)}
                     className="input-field"
-                    disabled={!isEditingConfig}
+                    disabled={!isEditingConfig || !canUpdateApp}
                   />
                 </dd>
               </div>
@@ -469,7 +522,7 @@ export default function ApplicationDetail() {
                     value={configForm.access_token_lifetime}
                     onChange={e => updateConfigField('access_token_lifetime', e.target.value)}
                     className="input-field"
-                    disabled={!isEditingConfig}
+                    disabled={!isEditingConfig || !canUpdateApp}
                   />
                 </dd>
               </div>
@@ -483,7 +536,7 @@ export default function ApplicationDetail() {
                     checked={!!configForm.refresh_token_enabled}
                     onChange={e => updateConfigField('refresh_token_enabled', e.target.checked)}
                     className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    disabled={!isEditingConfig}
+                    disabled={!isEditingConfig || !canUpdateApp}
                   />
                   Enable refresh tokens for this application
                 </label>
@@ -491,7 +544,7 @@ export default function ApplicationDetail() {
             </div>
             <div className="pt-2 flex gap-3">
               {!isEditingConfig && (
-                <button onClick={handleEditStart} className="btn-secondary">
+                <button onClick={handleEditStart} className={`btn-secondary ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp}>
                   Edit configuration
                 </button>
               )}
@@ -500,7 +553,7 @@ export default function ApplicationDetail() {
                   <button onClick={handleEditCancel} className="btn-secondary" disabled={savingConfig}>
                     Cancel
                   </button>
-                  <button onClick={handleSaveConfig} disabled={savingConfig} className="btn-primary">
+                  <button onClick={handleSaveConfig} disabled={savingConfig || !canUpdateApp} className="btn-primary">
                     {savingConfig ? 'Saving...' : 'Save configuration'}
                   </button>
                 </>
@@ -515,7 +568,7 @@ export default function ApplicationDetail() {
             Regular users can sign in only if they belong to one of these groups. Organization admins can always sign in, and role mappings remain optional.
           </div>
           <div className="flex gap-3 mb-5">
-            <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)} className="input-field">
+            <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)} className="input-field" disabled={!canUpdateApp}>
               <option value="">Select group to assign...</option>
               {availableGroups.map(group => (
                 <option key={group.id} value={group.id}>
@@ -523,7 +576,7 @@ export default function ApplicationDetail() {
                 </option>
               ))}
             </select>
-            <button onClick={assignGroup} disabled={!selectedGroup} className="btn-primary">
+            <button onClick={assignGroup} disabled={canUpdateApp && !selectedGroup} className={`btn-primary ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp}>
               <PlusIcon className="h-4 w-4" />
               Assign
             </button>
@@ -536,7 +589,7 @@ export default function ApplicationDetail() {
                   <p className="text-sm font-semibold text-slate-900">{group.name}</p>
                   <p className="mt-1 text-xs text-slate-500">{group.description || 'No description'}</p>
                 </div>
-                <button onClick={() => removeGroup(group.id)} className="text-sm font-medium text-red-700 hover:text-red-800">Remove</button>
+                <button onClick={() => removeGroup(group.id)} className={`text-sm font-medium text-red-700 hover:text-red-800 ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp}>Remove</button>
               </div>
             ))}
             {groups.length === 0 && <p className="text-sm text-slate-500">No groups assigned to this application.</p>}
@@ -557,11 +610,15 @@ export default function ApplicationDetail() {
             <select
               value={mappingForm.source_type}
               onChange={e => {
+                if (!canUpdateApp) {
+                  return;
+                }
                 const nextType = e.target.value;
                 setMappingError('');
                 setMappingForm({ source_type: nextType, source_value: '', app_role: mappingForm.app_role });
               }}
               className="input-field"
+              disabled={!canUpdateApp}
             >
               <option value="group">From App Group</option>
               <option value="role">From Org Role</option>
@@ -572,6 +629,7 @@ export default function ApplicationDetail() {
               onChange={e => updateMappingField('source_value', e.target.value)}
               className="input-field"
               placeholder={mappingForm.source_type === 'group' ? 'e.g. sigverse-admins' : 'e.g. org:admin'}
+              disabled={!canUpdateApp}
             />
             <datalist id={`mapping-source-options-${mappingForm.source_type}`}>
               {mappingSourceCandidates.map(name => (
@@ -583,8 +641,9 @@ export default function ApplicationDetail() {
               onChange={e => updateMappingField('app_role', e.target.value)}
               className="input-field"
               placeholder="e.g. delivery_agent"
+              disabled={!canUpdateApp}
             />
-            <button onClick={addRoleMapping} disabled={savingMapping} className="btn-primary">
+            <button onClick={addRoleMapping} disabled={savingMapping} className={`btn-primary ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp}>
               {savingMapping ? 'Adding...' : 'Add mapping'}
             </button>
           </div>
@@ -612,7 +671,7 @@ export default function ApplicationDetail() {
                       </span>
                     </td>
                     <td className="px-4 py-2 text-right">
-                      <button onClick={() => removeRoleMapping(mapping.id)} className="text-sm font-medium text-red-700 hover:text-red-800">
+                      <button onClick={() => removeRoleMapping(mapping.id)} className={`text-sm font-medium text-red-700 hover:text-red-800 ${canUpdateApp ? '' : 'cursor-not-allowed opacity-55'}`} aria-disabled={!canUpdateApp}>
                         Remove
                       </button>
                     </td>

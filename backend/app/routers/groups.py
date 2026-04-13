@@ -87,7 +87,13 @@ async def create_group_endpoint(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a group."""
-    group = await create_group(db, org_id, body.name, body.description)
+    try:
+        group = await create_group(db, org_id, body.name, body.description)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "group_conflict", "error_description": str(exc)},
+        )
     return GroupResponse(
         id=group.id, org_id=group.org_id, name=group.name,
         description=group.description, member_count=0,
@@ -106,9 +112,40 @@ async def update_group_endpoint(
     """Update group name/description."""
     group = await _get_org_group_or_404(db, org_id, group_id)
     await _ensure_group_manageable(db, current_user, group.id)
-    group = await update_group(db, group_id, body.name, body.description)
+    previous_name = group.name
+    previous_description = group.description
+    try:
+        group = await update_group(db, group_id, body.name, body.description)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "group_conflict", "error_description": str(exc)},
+        )
     if not group:
         raise HTTPException(404, detail={"error": "not_found", "error_description": "Group not found"})
+    if group.name != previous_name or group.description != previous_description:
+        await write_audit_event(
+            db,
+            "group.updated",
+            "group",
+            str(group.id),
+            org_id=org_id,
+            actor_id=current_user["user_id"],
+            metadata={
+                "group_id": str(group.id),
+                "previous_name": previous_name,
+                "new_name": group.name,
+                "previous_description": previous_description,
+                "new_description": group.description,
+            },
+        )
+        await send_admin_activity_notification(
+            db=db,
+            org_id=org_id,
+            actor_user_id=current_user["user_id"],
+            title="Group updated",
+            message=f"{current_user.get('email', 'An admin')} updated group '{previous_name}' to '{group.name}'.",
+        )
     return GroupResponse(
         id=group.id, org_id=group.org_id, name=group.name,
         description=group.description, member_count=0,
