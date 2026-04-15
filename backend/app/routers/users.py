@@ -18,6 +18,7 @@ from app.services.user_service import (
     resolve_rbac, update_user, suspend_user, unlock_user, soft_delete_user,
 )
 from app.services.token_service import revoke_all_user_tokens, get_user_token_jtis
+from app.services.browser_session_service import revoke_all_browser_sessions_for_user
 from app.services.audit_service import write_audit_event
 from app.services.email_service import send_password_reset_email, send_invitation_email
 from app.services.notification_service import (
@@ -255,6 +256,7 @@ async def get_user_endpoint(
         email=user.email,
         first_name=user.first_name,
         last_name=user.last_name,
+        profile_image_url=user.profile_image_url,
         status=user.status,
         email_verified=user.email_verified,
         mfa_enabled=user.mfa_enabled,
@@ -297,6 +299,7 @@ async def suspend_user_endpoint(
     # Revoke tokens
     jtis = await get_user_token_jtis(db, user_id)
     await revoke_all_user_tokens(db, user_id, reason="user_suspended")
+    await revoke_all_browser_sessions_for_user(redis, str(user_id))
     for jti in jtis:
         await redis.delete(f"session:{jti}")
 
@@ -405,6 +408,7 @@ async def delete_user_endpoint(
 
     jtis = await get_user_token_jtis(db, user_id)
     await revoke_all_user_tokens(db, user_id, reason="user_deleted")
+    await revoke_all_browser_sessions_for_user(redis, str(user_id))
     for jti in jtis:
         await redis.delete(f"session:{jti}")
 
@@ -433,6 +437,7 @@ async def revoke_sessions_endpoint(
 
     jtis = await get_user_token_jtis(db, user_id)
     await revoke_all_user_tokens(db, user_id, reason="sessions_revoked")
+    await revoke_all_browser_sessions_for_user(redis, str(user_id))
     for jti in jtis:
         await redis.delete(f"session:{jti}")
 

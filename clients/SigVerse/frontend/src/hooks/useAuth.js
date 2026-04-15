@@ -2,6 +2,8 @@ import { createContext, createElement, useContext, useEffect, useState } from 'r
 import { getMe } from '../services/authService';
 
 const AuthContext = createContext(null);
+const ID_TOKEN_KEY = 'jwt_token';
+const ACCESS_TOKEN_KEY = 'idp_access_token';
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -9,7 +11,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let cancelled = false;
-    const token = localStorage.getItem('jwt_token');
+    const token = localStorage.getItem(ACCESS_TOKEN_KEY);
     if (!token) {
       if (!cancelled) setLoading(false);
       return;
@@ -19,7 +21,8 @@ export function AuthProvider({ children }) {
         if (!cancelled) setUser(res.data.data);
       })
       .catch(() => {
-        localStorage.removeItem('jwt_token');
+        localStorage.removeItem(ID_TOKEN_KEY);
+        localStorage.removeItem(ACCESS_TOKEN_KEY);
         if (!cancelled) setUser(null);
       })
       .finally(() => {
@@ -31,13 +34,15 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  const login = (token) => {
-    localStorage.setItem('jwt_token', token);
+  const login = ({ idToken, accessToken }) => {
+    localStorage.setItem(ID_TOKEN_KEY, idToken);
+    localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
     return getMe().then(res => { setUser(res.data.data); return res.data.data; });
   };
 
   const logout = () => {
-    localStorage.removeItem('jwt_token');
+    localStorage.removeItem(ID_TOKEN_KEY);
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
     setUser(null);
   };
 

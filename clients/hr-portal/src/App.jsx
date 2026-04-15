@@ -124,19 +124,6 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    const activeToken = token || sessionStorage.getItem('hr_token');
-
-    if (activeToken) {
-      try {
-        await fetch(`${IDP_URL}/api/v1/logout`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${activeToken}`,
-          },
-        });
-      } catch {}
-    }
-
     setUser(null);
     setToken(null);
     sessionStorage.removeItem('hr_token');

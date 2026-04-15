@@ -198,6 +198,27 @@ async def update_user(db: AsyncSession, user_id: UUID, first_name: Optional[str]
     return user
 
 
+async def update_current_user_profile(
+    db: AsyncSession,
+    user_id: UUID,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+    profile_image_url: Optional[str] = None,
+) -> Optional[User]:
+    """Update self-service profile fields for a user."""
+    user = await get_user(db, user_id)
+    if not user:
+        return None
+
+    user.first_name = first_name
+    user.last_name = last_name
+    user.profile_image_url = profile_image_url
+    user.updated_at = datetime.now(timezone.utc)
+
+    await db.flush()
+    return user
+
+
 async def suspend_user(db: AsyncSession, user_id: UUID) -> Optional[User]:
     """Suspend a user."""
     user = await get_user(db, user_id)

@@ -16,15 +16,23 @@ export default function Signup() {
     admin_last_name: '',
     admin_email: '',
     admin_password: '',
+    admin_confirm_password: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const passwordsMatch = form.admin_password.length > 0 && form.admin_password === form.admin_confirm_password;
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccess('');
+
+    if (!passwordsMatch) {
+      setError('Confirm password must match the admin password.');
+      return;
+    }
+
     setLoading(true);
     try {
       const payload = {
@@ -131,6 +139,23 @@ export default function Signup() {
               <label className="mb-1.5 block text-sm font-medium text-gray-700">Admin Password</label>
               <input type="password" className="input-field" value={form.admin_password} onChange={(e) => setForm((f) => ({ ...f, admin_password: e.target.value }))} required />
               <PasswordCriteria password={form.admin_password} />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700">Confirm Password</label>
+              <input
+                type="password"
+                className="input-field"
+                value={form.admin_confirm_password}
+                onChange={(e) => setForm((f) => ({ ...f, admin_confirm_password: e.target.value }))}
+                required
+              />
+              <div className="password-criteria">
+                <div className={`password-rule ${passwordsMatch ? 'valid' : 'invalid'}`}>
+                  <span className="password-rule-dot" />
+                  {passwordsMatch ? 'Password matches' : 'Password does not match yet'}
+                </div>
+              </div>
             </div>
 
             <div className="rounded-lg border border-gray-300 bg-gray-100 px-3 py-2 text-xs text-gray-700">

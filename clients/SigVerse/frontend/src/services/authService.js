@@ -99,9 +99,5 @@ export const resetPassword = (data) => api.post('/auth/reset-password', data);
 export const getMe = () => api.get('/auth/me');
 
 export const logout = async () => {
-  const token = localStorage.getItem('jwt_token');
-  if (token) {
-    await logoutFromIdp(token);
-  }
   return api.post('/auth/logout');
 };

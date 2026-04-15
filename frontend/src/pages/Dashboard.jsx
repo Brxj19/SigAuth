@@ -3,11 +3,13 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/client';
 import PageHeader from '../components/PageHeader';
+import UserAvatar from '../components/UserAvatar';
 import { ApplicationsIcon, SecurityIcon, UsersIcon } from '../components/Icons';
+import { getDisplayName, getShortDisplayName } from '../utils/profile';
 import { hasPermission as userHasPermission, hasRole } from '../utils/permissions';
 
 export default function Dashboard() {
-  const { orgId, claims, isSuperAdmin } = useAuth();
+  const { orgId, claims, profile, isSuperAdmin } = useAuth();
   const [stats, setStats] = useState({
     users: 0,
     sessions: 0,
@@ -65,6 +67,9 @@ export default function Dashboard() {
   const hasPermission = (permission) => userHasPermission(claims, permission);
   const showMyApps = !isSuperAdmin && !hasRole(claims, 'org:admin');
   const organizationName = organization?.display_name || organization?.name || 'Your organization';
+  const account = profile || { email: claims?.email, first_name: claims?.given_name, last_name: claims?.family_name };
+  const accountName = getDisplayName(account, claims?.email || 'Account');
+  const greetingName = getShortDisplayName(account, '');
 
   const cards = [
     { label: 'Total Users', value: stats.users, tone: 'bg-indigo-50 text-indigo-700' },
@@ -77,7 +82,7 @@ export default function Dashboard() {
     <div>
       <PageHeader
         eyebrow="Dashboard"
-        title={`Welcome back${claims?.email ? `, ${claims.email.split('@')[0]}` : ''}`}
+        title={`Welcome back${greetingName ? `, ${greetingName}` : ''}`}
         description="Identity operations at a glance. Access core management flows in one click."
       />
 
@@ -91,15 +96,24 @@ export default function Dashboard() {
                 {organization.slug ? `/${organization.slug}` : 'Organization profile'}{organization?.access_tier ? ` • ${organization.access_tier.replace('_', ' ')}` : ''}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700">
-                Status: {organization.status}
-              </span>
-              {organization.verification_status ? (
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+              <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
+                <UserAvatar user={account} imageUrl={profile?.profile_image_url} className="h-11 w-11" textClassName="text-base" />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-gray-900">{accountName}</p>
+                  <p className="truncate text-xs text-gray-500">{profile?.email || claims?.email || 'Signed-in user'}</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
                 <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700">
-                  Verification: {organization.verification_status}
+                  Status: {organization.status}
                 </span>
-              ) : null}
+                {organization.verification_status ? (
+                  <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700">
+                    Verification: {organization.verification_status}
+                  </span>
+                ) : null}
+              </div>
             </div>
           </div>
         </section>

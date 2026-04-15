@@ -18,6 +18,7 @@ class User(Base):
     password_hash = Column(Text, nullable=False)
     first_name = Column(Text, nullable=True)
     last_name = Column(Text, nullable=True)
+    profile_image_url = Column(Text, nullable=True)
     status = Column(Text, nullable=False, default="active")  # active | locked | suspended
     email_verified = Column(Boolean, nullable=False, default=False)
     is_super_admin = Column(Boolean, nullable=False, default=False)

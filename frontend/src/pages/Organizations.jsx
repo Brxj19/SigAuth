@@ -9,6 +9,7 @@ export default function Organizations() {
   const { isSuperAdmin } = useAuth();
   const navigate = useNavigate();
   const [orgs, setOrgs] = useState([]);
+  const [pendingRequests, setPendingRequests] = useState([]);
   const [cursor, setCursor] = useState(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -39,6 +40,9 @@ export default function Organizations() {
 
   useEffect(() => {
     fetchOrganizations();
+    api.get('/api/v1/admin/organizations/pending-upgrade-requests')
+      .then((res) => setPendingRequests(res.data?.data || []))
+      .catch(() => setPendingRequests([]));
   }, [isSuperAdmin]);
 
   if (!isSuperAdmin) {
@@ -62,6 +66,27 @@ export default function Organizations() {
       />
 
       <div className="card overflow-hidden p-0">
+        {pendingRequests.length ? (
+          <div className="border-b border-amber-200 bg-amber-50 px-6 py-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-800">Pending upgrade requests</p>
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              {pendingRequests.slice(0, 6).map((request) => (
+                <button
+                  key={request.org_id}
+                  type="button"
+                  onClick={() => navigate(`/organizations/${request.org_id}`)}
+                  className="rounded-xl border border-amber-200 bg-white px-4 py-3 text-left transition hover:border-amber-300 hover:bg-amber-100/40"
+                >
+                  <p className="text-sm font-semibold text-slate-900">{request.org_name}</p>
+                  <p className="mt-1 text-xs text-slate-600">{request.submitted_by_email || 'Unknown requester'}</p>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Submitted {request.submitted_at ? new Date(request.submitted_at).toLocaleString() : 'recently'}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <table className="w-full">
           <thead>
             <tr className="table-header">

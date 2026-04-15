@@ -1,19 +1,16 @@
-"""FastAPI application: router registration, CORS, middleware, startup."""
+"""FastAPI application: router registration, middleware, startup."""
 
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
 
 from app.branding import PLATFORM_DESCRIPTION, PRODUCT_NAME
-from app.config import settings
-from app.database import engine, async_session_factory
+from app.database import engine
 from app.redis_client import get_redis_pool, close_redis_pool
 from app.utils.jwt_utils import initialize_keys
 from app.middleware.audit_middleware import AuditMiddleware
+from app.middleware.dynamic_cors import DynamicCORSMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
-from app.models.application import Application
 
 # Import all routers
 from app.routers import auth, organizations, applications, users, groups, roles, sessions, audit, health, email_deliveries, notifications, developer_docs, me
@@ -41,27 +38,8 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
-# ─── CORS ─────────────────────────────────────────────────────────────
-# Dynamic origins from registered redirect_uris + default dev origins
-CORS_ORIGINS = [
-    "http://localhost:3000",  # Admin Console
-    "http://localhost:4000",  # Client App 1
-    "http://localhost:4001",  # Client App 2
-    "http://localhost:5173",  # Vite dev
-    "http://localhost:5174",
-    "http://localhost:5175",
-]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-)
-
-# ─── Custom Middleware ─────────────────────────────────────────────────
+# ─── Middleware ────────────────────────────────────────────────────────
+app.add_middleware(DynamicCORSMiddleware)
 app.add_middleware(AuditMiddleware)
 app.add_middleware(RateLimitMiddleware)
 

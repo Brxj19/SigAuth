@@ -4,7 +4,9 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../api/client';
 import { PRODUCT_NAME, PRODUCT_TAGLINE } from '../branding';
 import OrgSelector from './OrgSelector';
+import UserAvatar from './UserAvatar';
 import { hasPermission as userHasPermission, hasRole } from '../utils/permissions';
+import { getDisplayName } from '../utils/profile';
 import {
   ApplicationsIcon,
   BellIcon,
@@ -45,7 +47,7 @@ const operationsItems = [
 ];
 
 export default function Layout() {
-  const { claims, logout, isSuperAdmin, orgId } = useAuth();
+  const { claims, profile, logout, isSuperAdmin, orgId } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -230,6 +232,9 @@ export default function Layout() {
 
   const hasPermission = (permission) => isSuperAdmin || userHasPermission(claims, permission);
   const isOrgAdmin = hasRole(claims, 'org:admin');
+  const account = profile || { email: claims?.email, first_name: claims?.given_name, last_name: claims?.family_name };
+  const accountName = getDisplayName(account, 'Account');
+  const accountEmail = profile?.email || claims?.email || '';
   const visibleNavItems = navItems.filter((item) => {
     if (item.userOnly && (isSuperAdmin || isOrgAdmin)) {
       return false;
@@ -240,9 +245,9 @@ export default function Layout() {
   const brandBlock = (
     <div className="flex items-center gap-3">
       <ProductMark className="h-9 w-9" />
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <h1 className="truncate text-lg font-semibold text-gray-900">{PRODUCT_NAME}</h1>
-        <p className="truncate text-xs text-gray-500">{PRODUCT_TAGLINE}</p>
+        <p className="line-clamp-2 text-xs leading-4 text-gray-500">{PRODUCT_TAGLINE}</p>
       </div>
     </div>
   );
@@ -357,7 +362,7 @@ export default function Layout() {
       ) : null}
 
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-gray-200 bg-white lg:flex">
-        <div className="border-b border-gray-200 px-6 py-5">
+        <div className="flex h-[73px] items-center border-b border-gray-200 px-6">
           {brandBlock}
         </div>
         {sidebarNav}
@@ -365,7 +370,7 @@ export default function Layout() {
 
       <div className="min-h-screen lg:ml-64">
         <header className="sticky top-0 z-10 border-b border-gray-200 bg-white/95 backdrop-blur">
-          <div className="flex items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
+          <div className="flex min-h-[73px] items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
             <button
               onClick={() => setMobileNavOpen(true)}
               className="rounded-lg border border-gray-200 bg-white p-2 text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 lg:hidden"
@@ -376,7 +381,7 @@ export default function Layout() {
 
             <div className="min-w-0 lg:hidden">
               <p className="truncate text-sm font-semibold text-gray-900">{PRODUCT_NAME}</p>
-              <p className="truncate text-[11px] text-gray-500">{claims?.org_name || claims?.email || PRODUCT_TAGLINE}</p>
+              <p className="truncate text-[11px] text-gray-500">{accountEmail || PRODUCT_TAGLINE}</p>
             </div>
 
             <div className="relative hidden max-w-lg flex-1 md:block">
@@ -420,14 +425,29 @@ export default function Layout() {
                 onClick={() => setProfileOpen((v) => !v)}
                 className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
               >
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700">
-                  {claims?.email?.[0]?.toUpperCase() || '?'}
-                </span>
-                <span className="hidden max-w-[180px] truncate sm:block">{claims?.email || 'Account'}</span>
+                <UserAvatar
+                  user={account}
+                  imageUrl={profile?.profile_image_url}
+                  className="h-8 w-8"
+                  textClassName="text-xs"
+                />
+                <span className="hidden max-w-[180px] truncate sm:block">{accountName}</span>
                 <ChevronDownIcon className="h-4 w-4 text-gray-400" />
               </button>
               {profileOpen ? (
                 <div className="absolute right-0 mt-2 w-56 rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
+                  <div className="mb-2 flex items-center gap-3 rounded-md bg-gray-50 px-3 py-2">
+                    <UserAvatar
+                      user={account}
+                      imageUrl={profile?.profile_image_url}
+                      className="h-10 w-10"
+                      textClassName="text-sm"
+                    />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-gray-900">{accountName}</p>
+                      <p className="truncate text-xs text-gray-500">{accountEmail || 'Signed-in account'}</p>
+                    </div>
+                  </div>
                   <button
                     onClick={() => {
                       setProfileOpen(false);

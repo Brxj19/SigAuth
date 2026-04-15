@@ -30,6 +30,8 @@ export function AuthProvider({ children }) {
     const t = getStoredToken();
     return t ? parseJwt(t) : null;
   });
+  const [profile, setProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(() => !!getStoredToken());
   const [orgId, setOrgId] = useState(() => {
     const t = getStoredToken();
     const c = t ? parseJwt(t) : null;
@@ -42,6 +44,8 @@ export function AuthProvider({ children }) {
   const clearAuthState = useCallback(() => {
     setToken(null);
     setClaims(null);
+    setProfile(null);
+    setProfileLoading(false);
     setOrgId(null);
     clearStoredAuth();
   }, []);
@@ -55,6 +59,8 @@ export function AuthProvider({ children }) {
 
     setToken(newToken);
     setClaims(parsed);
+    setProfile(null);
+    setProfileLoading(true);
     setOrgId(nextOrgId);
     setRememberBrowser(nextRememberBrowser);
     storeAuthToken(newToken, nextRememberBrowser);
@@ -89,6 +95,24 @@ export function AuthProvider({ children }) {
     setRememberBrowser(nextValue);
   }, []);
 
+  const refreshProfile = useCallback(async () => {
+    if (!token) {
+      setProfile(null);
+      setProfileLoading(false);
+      return null;
+    }
+
+    setProfileLoading(true);
+    try {
+      const res = await api.get('/api/v1/me/profile');
+      const nextProfile = res.data || null;
+      setProfile(nextProfile);
+      return nextProfile;
+    } finally {
+      setProfileLoading(false);
+    }
+  }, [token]);
+
   // Auto-logout 60 seconds before token expiry
   useEffect(() => {
     if (!claims?.exp) return;
@@ -111,6 +135,37 @@ export function AuthProvider({ children }) {
   }, [claims, orgId, rememberBrowser]);
 
   useEffect(() => {
+    let active = true;
+
+    if (!token) {
+      setProfile(null);
+      setProfileLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setProfileLoading(true);
+    api.get('/api/v1/me/profile')
+      .then((res) => {
+        if (!active) return;
+        setProfile(res.data || null);
+      })
+      .catch(() => {
+        if (!active) return;
+        setProfile(null);
+      })
+      .finally(() => {
+        if (!active) return;
+        setProfileLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  useEffect(() => {
     const handleStorage = (event) => {
       if (event.key !== LOGOUT_SYNC_KEY || !event.newValue) return;
       clearAuthState();
@@ -126,10 +181,14 @@ export function AuthProvider({ children }) {
   const value = {
     token,
     claims,
+    profile,
+    profileLoading,
     orgId,
     setOrgId: updateOrgId,
     login,
     logout,
+    refreshProfile,
+    setProfile,
     rememberBrowser,
     setRememberBrowserPreference: updateRememberBrowserPreference,
     isSuperAdmin: !!claims?.is_super_admin,

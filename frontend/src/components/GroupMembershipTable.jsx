@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
+import UserAvatar from './UserAvatar';
 import { PlusIcon, SearchIcon, XIcon } from './Icons';
+import { getDisplayName } from '../utils/profile';
 
 export default function GroupMembershipTable({ groupId, allowManageMembers = true, blockedMessage = '' }) {
   const { orgId } = useAuth();
@@ -125,9 +127,12 @@ export default function GroupMembershipTable({ groupId, allowManageMembers = tru
               <div className="mt-3 overflow-hidden rounded-lg border border-dark-700 bg-dark-900">
                 {searchResults.map(u => (
                   <div key={u.id} className="flex items-center justify-between border-b border-dark-700 px-4 py-3 last:border-b-0">
-                    <div>
+                    <div className="flex items-center gap-3">
+                      <UserAvatar user={u} className="h-10 w-10" textClassName="text-xs" />
+                      <div>
                       <p className="text-sm font-medium text-dark-100">{u.email}</p>
-                      <p className="text-xs text-dark-400">{`${u.first_name || ''} ${u.last_name || ''}`.trim() || 'No name set'}</p>
+                      <p className="text-xs text-dark-400">{getDisplayName(u, 'No name set')}</p>
+                      </div>
                     </div>
                     <button onClick={() => addMember(u.id)} disabled={loading} className="btn-secondary">
                       <PlusIcon className="h-4 w-4" />
@@ -160,8 +165,13 @@ export default function GroupMembershipTable({ groupId, allowManageMembers = tru
           <tbody>
             {members.map(m => (
               <tr key={m.id} className="table-row">
-                <td className="py-3 px-4 text-sm">{m.email}</td>
-                <td className="py-3 px-4 text-sm text-dark-300">{`${m.first_name || ''} ${m.last_name || ''}`.trim() || '—'}</td>
+                <td className="py-3 px-4 text-sm">
+                  <div className="flex items-center gap-3">
+                    <UserAvatar user={m} className="h-9 w-9" textClassName="text-xs" />
+                    <span>{m.email}</span>
+                  </div>
+                </td>
+                <td className="py-3 px-4 text-sm text-dark-300">{getDisplayName(m, '—')}</td>
                 <td className="py-3 px-4">
                   <span className={m.status === 'active' ? 'badge-green' : 'badge-red'}>{m.status}</span>
                 </td>

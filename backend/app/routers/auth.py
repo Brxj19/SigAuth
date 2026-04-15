@@ -34,6 +34,16 @@ from app.services.auth_page_renderer import (
     render_authorize_mfa_page,
     render_authorize_transition_page,
 )
+from app.services.browser_session_service import (
+    attach_browser_session_cookie,
+    clear_browser_session_cookie,
+    create_browser_session,
+    get_browser_session,
+    read_browser_session_id,
+    revoke_all_browser_sessions_for_user,
+    revoke_browser_session,
+    touch_browser_session,
+)
 from app.services.mfa_service import (
     MFA_ISSUER_NAME,
     build_totp_uri,
@@ -74,7 +84,7 @@ from app.schemas.signup import (
 )
 from app.schemas.user import LoginMfaVerifyRequest, LoginRequest, LoginResponse, PasswordResetRequest, PasswordResetConfirm
 from app.schemas.token import TokenResponse, UserInfoResponse, TokenIntrospectResponse
-from app.utils.jwt_utils import verify_token, build_jwks
+from app.utils.jwt_utils import verify_token, build_jwks, build_audience_claims
 from app.utils.crypto_utils import (
     verify_password, pkce_verify, generate_auth_code,
     verify_email_verification_token, generate_reset_token, validate_password_policy, hash_password,
@@ -162,6 +172,88 @@ async def _finalize_authorization_success(
 
     redirect_url = f"{auth_state['redirect_uri']}?code={code}&state={state}"
     return redirect_url
+
+
+async def _attach_browser_sso_cookie(
+    response: Response,
+    *,
+    redis: aioredis.Redis,
+    user: User,
+    request: Request,
+) -> None:
+    browser_session_id = await create_browser_session(
+        redis,
+        user_id=str(user.id),
+        org_id=str(user.org_id),
+        email=user.email,
+        user_agent=request.headers.get("user-agent", ""),
+        ip_address=request.client.host if request.client else "",
+    )
+    attach_browser_session_cookie(response, browser_session_id)
+
+
+async def _attempt_authorize_with_browser_session(
+    *,
+    request: Request,
+    db: AsyncSession,
+    redis: aioredis.Redis,
+    state: str,
+    auth_state: dict,
+) -> Optional[HTMLResponse]:
+    browser_session_id = read_browser_session_id(request)
+    browser_session = await get_browser_session(redis, browser_session_id)
+    if not browser_session:
+        return None
+
+    user = await get_user(db, UUID(str(browser_session.get("user_id"))))
+    if not user or user.status != "active":
+        await revoke_browser_session(redis, browser_session_id)
+        response = HTMLResponse(
+            content=render_authorize_login_page(state=state, auth_state=auth_state),
+            status_code=200,
+        )
+        clear_browser_session_cookie(response)
+        return response
+
+    roles, _ = await resolve_rbac(db, user.id, user.org_id)
+    user_groups = await get_user_groups(db, user.id)
+    app_access = await resolve_application_access(
+        db,
+        user,
+        str(auth_state["client_id"]),
+        roles,
+        user_groups,
+    )
+    if not app_access["access_allowed"]:
+        response = HTMLResponse(
+            content=login_error_page(
+                state,
+                app_access["access_error"] or "You are not authorized to access this application. Contact your administrator.",
+            ),
+            status_code=403,
+        )
+        attach_browser_session_cookie(response, str(browser_session_id))
+        await touch_browser_session(redis, str(browser_session_id), browser_session)
+        return response
+
+    await redis.delete(f"auth_state:{state}")
+    redirect_url = await _finalize_authorization_success(
+        db=db,
+        user=user,
+        auth_state=auth_state,
+        state=state,
+        request=request,
+    )
+    response = HTMLResponse(
+        content=render_authorize_transition_page(
+            redirect_url=redirect_url,
+            auth_state=auth_state,
+        ),
+        status_code=200,
+    )
+    attach_browser_session_cookie(response, str(browser_session_id))
+    await touch_browser_session(redis, str(browser_session_id), browser_session)
+    return response
 
 
 # ─── POST /signup/organization ──────────────────────────────────────
@@ -324,7 +416,9 @@ async def login_endpoint(
 
         result = await issue_login_success(db, redis, user, ip, ua)
         await db.commit()
-        return result
+        response = JSONResponse(content=result)
+        await _attach_browser_sso_cookie(response, redis=redis, user=user, request=request)
+        return response
     except AuthError as e:
         raise HTTPException(status_code=e.status_code, detail={"error": e.error, "error_description": e.description})
 
@@ -332,6 +426,7 @@ async def login_endpoint(
 @router.post("/login/mfa/verify", response_model=LoginResponse)
 async def login_mfa_verify_endpoint(
     body: LoginMfaVerifyRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ):
@@ -444,12 +539,15 @@ async def login_mfa_verify_endpoint(
     result["backup_codes"] = issued_backup_codes
     result["recovery_codes_remaining"] = count_recovery_codes(user.mfa_recovery_codes)
     await db.commit()
-    return result
+    response = JSONResponse(content=result)
+    await _attach_browser_sso_cookie(response, redis=redis, user=user, request=request)
+    return response
 
 
 # ─── GET /authorize ──────────────────────────────────────────────────
 @router.get("/authorize")
 async def authorize_endpoint(
+    request: Request,
     response_type: str = Query(...),
     client_id: str = Query(...),
     redirect_uri: str = Query(...),
@@ -512,13 +610,28 @@ async def authorize_endpoint(
     }
     await redis.set(f"auth_state:{state}", json.dumps(auth_state), ex=600)
 
-    # Redirect to login page
+    browser_sso_response = await _attempt_authorize_with_browser_session(
+        request=request,
+        db=db,
+        redis=redis,
+        state=state,
+        auth_state=auth_state,
+    )
+    if browser_sso_response is not None:
+        await db.commit()
+        return browser_sso_response
+
     return RedirectResponse(url=f"/api/v1/authorize/login-page?state={state}", status_code=302)
 
 
 # ─── GET /authorize/login-page ───────────────────────────────────────
 @router.get("/authorize/login-page", response_class=HTMLResponse)
-async def authorize_login_page(state: str = Query(...), error_message: Optional[str] = Query(None, alias="error")):
+async def authorize_login_page(
+    request: Request,
+    state: str = Query(...),
+    error_message: Optional[str] = Query(None, alias="error"),
+    db: AsyncSession = Depends(get_db),
+):
     """Serve the HTML login form for the authorization flow."""
     redis = await get_redis()
     state_data = await redis.get(f"auth_state:{state}")
@@ -526,6 +639,18 @@ async def authorize_login_page(state: str = Query(...), error_message: Optional[
         raise HTTPException(400, detail={"error": "invalid_state", "error_description": "Authorization state not found or expired"})
 
     auth_state = json.loads(state_data)
+    if not error_message:
+        browser_sso_response = await _attempt_authorize_with_browser_session(
+            request=request,
+            db=db,
+            redis=redis,
+            state=state,
+            auth_state=auth_state,
+        )
+        if browser_sso_response is not None:
+            await db.commit()
+            return browser_sso_response
+
     return HTMLResponse(
         content=render_authorize_login_page(
             state=state,
@@ -579,7 +704,7 @@ async def authorize_submit(
     )
     if not app_access["access_allowed"]:
         return HTMLResponse(
-            content=_login_error_page(
+            content=login_error_page(
                 state,
                 app_access["access_error"] or "You are not authorized to access this application. Contact your administrator.",
             ),
@@ -628,13 +753,15 @@ async def authorize_submit(
         request=request,
     )
     await db.commit()
-    return HTMLResponse(
+    response = HTMLResponse(
         content=render_authorize_transition_page(
             redirect_url=redirect_url,
             auth_state=auth_state,
         ),
         status_code=200,
     )
+    await _attach_browser_sso_cookie(response, redis=redis, user=user, request=request)
+    return response
 
 
 @router.post("/authorize/mfa-submit")
@@ -765,7 +892,7 @@ async def authorize_mfa_submit(
     )
     if issued_backup_codes:
         await db.commit()
-        return HTMLResponse(
+        response = HTMLResponse(
             content=render_authorize_backup_codes_page(
                 redirect_url=redirect_url,
                 auth_state=auth_state,
@@ -773,14 +900,18 @@ async def authorize_mfa_submit(
             ),
             status_code=200,
         )
+        await _attach_browser_sso_cookie(response, redis=redis, user=user, request=request)
+        return response
     await db.commit()
-    return HTMLResponse(
+    response = HTMLResponse(
         content=render_authorize_transition_page(
             redirect_url=redirect_url,
             auth_state=auth_state,
         ),
         status_code=200,
     )
+    await _attach_browser_sso_cookie(response, redis=redis, user=user, request=request)
+    return response
 
 
 # ─── POST /token ─────────────────────────────────────────────────────
@@ -1011,6 +1142,11 @@ async def _handle_client_credentials_grant(db, client_id, client_secret, scope_s
         org_id=app.org_id,
         is_super_admin=False,
         client_id=client_id,
+        email=None,
+        email_verified=None,
+        name=None,
+        given_name=None,
+        family_name=None,
         scopes=scopes,
         roles=[],
         permissions=[],
@@ -1033,6 +1169,7 @@ async def _handle_client_credentials_grant(db, client_id, client_secret, scope_s
 # ─── POST /logout ────────────────────────────────────────────────────
 @router.post("/logout", status_code=204)
 async def logout_endpoint(
+    request: Request,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
@@ -1049,7 +1186,11 @@ async def logout_endpoint(
         metadata={"jti": jti, "revoke_reason": "logout"}
     )
 
-    return Response(status_code=204)
+    await revoke_browser_session(redis, read_browser_session_id(request))
+
+    response = Response(status_code=204)
+    clear_browser_session_cookie(response)
+    return response
 
 
 # ─── GET /userinfo ────────────────────────────────────────────────────
@@ -1061,6 +1202,16 @@ async def userinfo_endpoint(
     """UserInfo endpoint: returns current user data with fresh RBAC."""
     user = current_user["user"]
     roles, permissions = await resolve_rbac(db, user.id, user.org_id)
+    audience_claims = build_audience_claims(
+        client_id=str(current_user["claims"].get("aud") or ""),
+        roles=roles,
+        permissions=permissions,
+        groups=[],
+        group_ids=[],
+        app_groups=list(current_user["claims"].get("app_groups") or []),
+        app_group_ids=list(current_user["claims"].get("app_group_ids") or []),
+        app_roles=list(current_user["claims"].get("app_roles") or []),
+    )
     name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email
 
     return UserInfoResponse(
@@ -1070,8 +1221,8 @@ async def userinfo_endpoint(
         name=name,
         given_name=user.first_name or "",
         family_name=user.last_name or "",
-        roles=roles,
-        permissions=permissions,
+        roles=audience_claims["roles"],
+        permissions=audience_claims["permissions"],
         org_id=str(user.org_id),
     )
 
@@ -1265,6 +1416,7 @@ async def password_reset_confirm(
     # Revoke all existing tokens
     jtis = await get_user_token_jtis(db, token_record.user_id)
     await revoke_all_user_tokens(db, token_record.user_id, reason="password_reset")
+    await revoke_all_browser_sessions_for_user(redis, str(token_record.user_id))
 
     # Clear Redis sessions
     for jti in jtis:
@@ -1328,6 +1480,7 @@ async def password_setup_confirm(
     # Revoke any previously issued sessions/tokens before first real sign-in.
     jtis = await get_user_token_jtis(db, token_record.user_id)
     await revoke_all_user_tokens(db, token_record.user_id, reason="password_setup")
+    await revoke_all_browser_sessions_for_user(redis, str(token_record.user_id))
     for jti in jtis:
         await redis.delete(f"session:{jti}")
 

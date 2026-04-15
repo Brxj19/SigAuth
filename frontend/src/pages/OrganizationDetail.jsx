@@ -28,6 +28,7 @@ export default function OrganizationDetail() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState({
     display_name: '',
@@ -109,26 +110,37 @@ export default function OrganizationDetail() {
     if (!confirm('Suspend this organization?')) return;
     const res = await api.post(`/api/v1/admin/organizations/${id}/suspend`);
     setOrg(res.data);
+    setSuccess('Organization suspended.');
   };
 
   const handleActivate = async () => {
     const res = await api.post(`/api/v1/admin/organizations/${id}/activate`);
     setOrg(res.data);
+    setSuccess('Organization activated.');
   };
 
   const handleVerifyEnterprise = async () => {
     const res = await api.post(`/api/v1/admin/organizations/${id}/verify-enterprise`);
     setOrg(res.data);
+    setSuccess('Organization moved to verified enterprise.');
   };
 
   const handleSetLimited = async () => {
     const res = await api.post(`/api/v1/admin/organizations/${id}/set-limited`);
     setOrg(res.data);
+    setSuccess('Organization moved to limited tier.');
   };
 
   const handleApproveUpgradeRequest = async () => {
     const res = await api.post(`/api/v1/admin/organizations/${id}/approve-upgrade-request`);
     setOrg(res.data);
+    setSuccess('Upgrade request approved.');
+  };
+
+  const handleDeleteOrganization = async () => {
+    if (!confirm('Delete this organization? This is a soft delete and the tenant will disappear from normal operations.')) return;
+    await api.delete(`/api/v1/admin/organizations/${id}`);
+    navigate('/organizations');
   };
 
   if (loading || !org) return <div className="text-center py-20 text-dark-400">Loading...</div>;
@@ -163,9 +175,18 @@ export default function OrganizationDetail() {
                 Set Limited
               </button>
             )}
+            <button onClick={handleDeleteOrganization} className="btn-danger">
+              Delete
+            </button>
           </div>
         }
       />
+
+      {success ? (
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {success}
+        </div>
+      ) : null}
 
       <div className="mb-8 flex flex-wrap items-center gap-3">
         <span className={org.status === 'active' ? 'badge-green' : 'badge-yellow'}>{org.status}</span>
@@ -216,6 +237,20 @@ export default function OrganizationDetail() {
             {error}
           </div>
         )}
+
+        {org.settings?.upgrade_request?.payload ? (
+          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-4">
+            <p className="text-sm font-semibold text-amber-900">Upgrade request details</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              {Object.entries(org.settings.upgrade_request.payload).map(([key, value]) => (
+                <div key={key}>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-800">{key.replace(/_/g, ' ')}</p>
+                  <p className="mt-1 text-sm text-slate-700">{String(value || '—')}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">

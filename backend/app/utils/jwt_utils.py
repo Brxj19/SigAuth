@@ -15,6 +15,7 @@ from app.config import settings
 _private_key: Optional[str] = None
 _public_key: Optional[str] = None
 _kid: Optional[str] = None
+ADMIN_CONSOLE_AUDIENCE = "admin-console"
 
 
 def _ensure_keys_exist() -> None:
@@ -86,6 +87,40 @@ def get_kid() -> str:
     return _kid
 
 
+def build_audience_claims(
+    *,
+    client_id: str,
+    roles: list[str],
+    permissions: list[str],
+    groups: list[str],
+    group_ids: list[str],
+    app_groups: list[str],
+    app_group_ids: list[str],
+    app_roles: list[str],
+) -> dict[str, list[str]]:
+    """Shape authorization claims according to token audience."""
+    if client_id == ADMIN_CONSOLE_AUDIENCE:
+        return {
+            "roles": roles,
+            "permissions": permissions,
+            "groups": groups,
+            "group_ids": group_ids,
+            "app_groups": app_groups,
+            "app_group_ids": app_group_ids,
+            "app_roles": app_roles,
+        }
+
+    return {
+        "roles": roles,
+        "permissions": [],
+        "groups": [],
+        "group_ids": [],
+        "app_groups": app_groups,
+        "app_group_ids": app_group_ids,
+        "app_roles": app_roles,
+    }
+
+
 def sign_id_token(
     user_id: str,
     email: str,
@@ -115,6 +150,16 @@ def sign_id_token(
     token_lifetime = lifetime or settings.ID_TOKEN_LIFETIME
     exp = now + timedelta(seconds=token_lifetime)
     token_jti = jti or str(uuid.uuid4())
+    audience_claims = build_audience_claims(
+        client_id=client_id,
+        roles=roles,
+        permissions=permissions,
+        groups=groups,
+        group_ids=group_ids,
+        app_groups=app_groups,
+        app_group_ids=app_group_ids,
+        app_roles=app_roles,
+    )
 
     payload: dict[str, Any] = {
         "iss": settings.ISSUER_URL,
@@ -130,13 +175,7 @@ def sign_id_token(
         "family_name": family_name,
         "org_id": org_id,
         "is_super_admin": is_super_admin,
-        "roles": roles,
-        "permissions": permissions,
-        "groups": groups,
-        "group_ids": group_ids,
-        "app_groups": app_groups,
-        "app_group_ids": app_group_ids,
-        "app_roles": app_roles,
+        **audience_claims,
     }
 
     if nonce:
@@ -165,6 +204,11 @@ def sign_access_token(
     app_groups: list[str],
     app_group_ids: list[str],
     app_roles: list[str],
+    email: Optional[str] = None,
+    email_verified: Optional[bool] = None,
+    name: Optional[str] = None,
+    given_name: Optional[str] = None,
+    family_name: Optional[str] = None,
     lifetime: Optional[int] = None,
     jti: Optional[str] = None,
 ) -> tuple[str, str, int]:
@@ -176,6 +220,16 @@ def sign_access_token(
     token_lifetime = lifetime or settings.ACCESS_TOKEN_LIFETIME
     exp = now + timedelta(seconds=token_lifetime)
     token_jti = jti or str(uuid.uuid4())
+    audience_claims = build_audience_claims(
+        client_id=client_id,
+        roles=roles,
+        permissions=permissions,
+        groups=groups,
+        group_ids=group_ids,
+        app_groups=app_groups,
+        app_group_ids=app_group_ids,
+        app_roles=app_roles,
+    )
 
     payload: dict[str, Any] = {
         "iss": settings.ISSUER_URL,
@@ -187,15 +241,20 @@ def sign_access_token(
         "org_id": org_id,
         "is_super_admin": is_super_admin,
         "scope": " ".join(scopes),
-        "roles": roles,
-        "permissions": permissions,
-        "groups": groups,
-        "group_ids": group_ids,
-        "app_groups": app_groups,
-        "app_group_ids": app_group_ids,
-        "app_roles": app_roles,
+        **audience_claims,
         "token_type": "access",
     }
+
+    if email is not None:
+        payload["email"] = email
+    if email_verified is not None:
+        payload["email_verified"] = email_verified
+    if name is not None:
+        payload["name"] = name
+    if given_name is not None:
+        payload["given_name"] = given_name
+    if family_name is not None:
+        payload["family_name"] = family_name
 
     headers = {
         "alg": "RS256",

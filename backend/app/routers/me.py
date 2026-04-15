@@ -13,6 +13,8 @@ from app.schemas.application import ApplicationListResponse, ApplicationResponse
 from app.schemas.user import (
     AccountPreferencesResponse,
     AccountPreferencesUpdate,
+    CurrentUserProfileResponse,
+    CurrentUserProfileUpdate,
     MfaCodeVerifyRequest,
     MfaDisableRequest,
     MfaRecoveryCodesRegenerateRequest,
@@ -45,9 +47,73 @@ from app.services.notification_service import (
     set_notification_preference,
 )
 from app.services.organization_service import get_org_access_tier, get_organization
+from app.services.user_service import update_current_user_profile
 from app.utils.crypto_utils import verify_password
 
 router = APIRouter(prefix="/api/v1/me", tags=["me"])
+
+
+@router.get("/profile", response_model=CurrentUserProfileResponse)
+async def get_my_profile_endpoint(
+    current_user: dict = Depends(get_current_user),
+):
+    """Return the signed-in user's self-service profile."""
+    return CurrentUserProfileResponse.model_validate(current_user["user"])
+
+
+@router.patch("/profile", response_model=CurrentUserProfileResponse)
+async def update_my_profile_endpoint(
+    body: CurrentUserProfileUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the signed-in user's self-service profile."""
+    current = current_user["user"]
+    updates = body.model_dump(exclude_unset=True)
+
+    first_name = current.first_name
+    last_name = current.last_name
+    profile_image_url = current.profile_image_url
+
+    if "first_name" in updates:
+        first_name = updates["first_name"].strip() if updates["first_name"] is not None else None
+        if first_name == "":
+            first_name = None
+
+    if "last_name" in updates:
+        last_name = updates["last_name"].strip() if updates["last_name"] is not None else None
+        if last_name == "":
+            last_name = None
+
+    if "profile_image_url" in updates:
+        profile_image_url = updates["profile_image_url"].strip() if updates["profile_image_url"] is not None else None
+        if profile_image_url == "":
+            profile_image_url = None
+
+    user = await update_current_user_profile(
+        db,
+        current_user["user_id"],
+        first_name=first_name,
+        last_name=last_name,
+        profile_image_url=profile_image_url,
+    )
+    if not user:
+        raise HTTPException(404, detail={"error": "not_found", "error_description": "User not found"})
+
+    await write_audit_event(
+        db=db,
+        event_type="user.profile.updated",
+        resource_type="user",
+        resource_id=str(user.id),
+        org_id=user.org_id,
+        actor_id=user.id,
+        metadata={
+            "updated_fields": sorted(updates.keys()),
+            "profile_image_updated": "profile_image_url" in updates,
+        },
+    )
+
+    return CurrentUserProfileResponse.model_validate(user)
 
 
 @router.get("/organization", response_model=CurrentOrganizationResponse)

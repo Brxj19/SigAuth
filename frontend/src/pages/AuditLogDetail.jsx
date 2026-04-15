@@ -146,7 +146,7 @@ export default function AuditLogDetail() {
         description={`Event #${event.id} • ${new Date(event.created_at).toLocaleString()}`}
       />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="space-y-6">
         <div className="card">
           <h2 className="mb-4 text-lg font-semibold text-slate-900">Event Details</h2>
           <dl className="space-y-4">

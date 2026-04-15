@@ -27,19 +27,24 @@ export default function LoadingScreen() {
 
   return (
     <div className="app-loading-screen" role="status" aria-live="polite">
-      <div className="app-loading-card">
+      <div className="app-loading-brand">
         <img src={productLogo} alt={PRODUCT_NAME} className="app-loading-logo" />
-        <dotlottie-wc
-          src={LOTTIE_ANIMATION_SRC}
-          className="app-loading-gif"
-          style={{ width: '8.5rem', height: '8.5rem' }}
-          autoplay
-          loop
-        />
         <div className="app-loading-copy">
           <h1>{PRODUCT_NAME}</h1>
           <p>{PRODUCT_TAGLINE}</p>
         </div>
+      </div>
+      <div className="app-loading-stage">
+        <dotlottie-wc
+          src={LOTTIE_ANIMATION_SRC}
+          className="app-loading-gif"
+          style={{ width: 'min(78vw, 32rem)', height: 'min(78vw, 32rem)' }}
+          autoplay
+          loop
+        />
+      </div>
+      <div className="app-loading-footer">
+        <p>Preparing your workspace and syncing identity context.</p>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/client';
@@ -7,19 +7,34 @@ import PageHeader from '../components/PageHeader';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import RoleBadge from '../components/RoleBadge';
+import UserAvatar from '../components/UserAvatar';
+import { isCloudinaryConfigured, uploadProfileImage } from '../utils/cloudinaryUpload';
+import { getDisplayName } from '../utils/profile';
 
 export default function Settings() {
-  const { claims, rememberBrowser, setRememberBrowserPreference, isSuperAdmin, orgId } = useAuth();
+  const { claims, profile, rememberBrowser, setRememberBrowserPreference, isSuperAdmin, orgId, setProfile } = useAuth();
   const [preferences, setPreferences] = useState({
     securityAlerts: false,
     weeklySummary: false,
     rememberSession: rememberBrowser,
   });
+  const [profileForm, setProfileForm] = useState({
+    firstName: '',
+    lastName: '',
+    profileImageUrl: '',
+  });
   const [organization, setOrganization] = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [revokingSessionJti, setRevokingSessionJti] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileUploading, setProfileUploading] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileMessage, setProfileMessage] = useState('');
   const [mfaStatus, setMfaStatus] = useState({ enabled: false, org_enforced: false, recovery_codes_remaining: 0 });
   const [mfaSetup, setMfaSetup] = useState(null);
   const [mfaCode, setMfaCode] = useState('');
@@ -31,6 +46,15 @@ export default function Settings() {
   const [mfaLoading, setMfaLoading] = useState(false);
   const [mfaMessage, setMfaMessage] = useState('');
   const [mfaError, setMfaError] = useState('');
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    setProfileForm({
+      firstName: profile?.first_name || '',
+      lastName: profile?.last_name || '',
+      profileImageUrl: profile?.profile_image_url || '',
+    });
+  }, [profile]);
 
   useEffect(() => {
     let active = true;
@@ -38,10 +62,12 @@ export default function Settings() {
     const loadSettings = async () => {
       try {
         setLoading(true);
-        const [prefRes, mfaRes, orgRes] = await Promise.all([
+        setSessionsLoading(true);
+        const [prefRes, mfaRes, orgRes, sessionsRes] = await Promise.all([
           api.get('/api/v1/me/preferences'),
           api.get('/api/v1/me/mfa'),
           isSuperAdmin ? api.get(`/api/v1/admin/organizations/${orgId}`) : api.get('/api/v1/me/organization'),
+          api.get('/api/v1/me/sessions').catch(() => ({ data: { data: [] } })),
         ]);
         if (!active) return;
         setPreferences({
@@ -55,11 +81,15 @@ export default function Settings() {
           recovery_codes_remaining: Number(mfaRes.data?.recovery_codes_remaining || 0),
         });
         setOrganization(orgRes.data || null);
+        setSessions(sessionsRes.data?.data || []);
       } catch (err) {
         if (!active) return;
         setError(err.response?.data?.detail?.error_description || 'Unable to load account preferences.');
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+          setSessionsLoading(false);
+        }
       }
     };
 
@@ -72,6 +102,72 @@ export default function Settings() {
   const organizationName = organization?.display_name || organization?.name || 'Unknown';
   const roles = claims?.roles || [];
   const permissions = claims?.permissions || [];
+  const account = profile || { email: claims?.email, first_name: claims?.given_name, last_name: claims?.family_name };
+  const previewAccount = {
+    ...account,
+    first_name: profileForm.firstName,
+    last_name: profileForm.lastName,
+    profile_image_url: profileForm.profileImageUrl,
+  };
+  const accountName = getDisplayName(previewAccount, claims?.email || 'Account');
+
+  const handleProfileSave = async () => {
+    setProfileSaving(true);
+    setProfileError('');
+    setProfileMessage('');
+
+    try {
+      const res = await api.patch('/api/v1/me/profile', {
+        first_name: profileForm.firstName,
+        last_name: profileForm.lastName,
+        profile_image_url: profileForm.profileImageUrl || null,
+      });
+      const nextProfile = res.data || null;
+      setProfile(nextProfile);
+      setProfileForm({
+        firstName: nextProfile?.first_name || '',
+        lastName: nextProfile?.last_name || '',
+        profileImageUrl: nextProfile?.profile_image_url || '',
+      });
+      setProfileMessage('Profile updated.');
+    } catch (err) {
+      setProfileError(err.response?.data?.detail?.error_description || 'Unable to save profile changes.');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleProfileImageSelected = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setProfileUploading(true);
+    setProfileError('');
+    setProfileMessage('');
+
+    try {
+      const secureUrl = await uploadProfileImage(file);
+      setProfileForm((current) => ({
+        ...current,
+        profileImageUrl: secureUrl,
+      }));
+      setProfileMessage('Profile photo uploaded. Save profile to publish it across the app.');
+    } catch (err) {
+      setProfileError(err.message || 'Unable to upload profile photo.');
+    } finally {
+      setProfileUploading(false);
+    }
+  };
+
+  const handleRemovePhoto = () => {
+    setProfileForm((current) => ({
+      ...current,
+      profileImageUrl: '',
+    }));
+    setProfileError('');
+    setProfileMessage('Profile photo removed. Save profile to apply the change.');
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -96,6 +192,22 @@ export default function Settings() {
       setError(err.response?.data?.detail?.error_description || 'Unable to save account preferences.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const revokeSession = async (jti) => {
+    if (!jti) return;
+    setRevokingSessionJti(jti);
+    setError('');
+    setMessage('');
+    try {
+      await api.delete(`/api/v1/me/sessions/${jti}`);
+      setSessions((current) => current.filter((session) => session.jti !== jti));
+      setMessage('Session revoked.');
+    } catch (err) {
+      setError(err.response?.data?.detail?.error_description || 'Unable to revoke that session.');
+    } finally {
+      setRevokingSessionJti('');
     }
   };
 
@@ -201,10 +313,85 @@ export default function Settings() {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <Card title="Profile" subtitle="Identity information tied to your current account." className="xl:col-span-1">
-          <dl className="space-y-3 text-sm">
+          {profileError ? <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{profileError}</div> : null}
+          {profileMessage ? <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{profileMessage}</div> : null}
+
+          <div className="flex items-start gap-4">
+            <UserAvatar
+              user={previewAccount}
+              imageUrl={profileForm.profileImageUrl}
+              className="h-20 w-20"
+              textClassName="text-xl"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-gray-900">{accountName}</p>
+              <p className="mt-1 text-sm text-gray-500">{profile?.email || claims?.email || 'Unknown'}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={profileUploading}
+                >
+                  {profileUploading ? 'Uploading...' : 'Upload photo'}
+                </button>
+                <Button
+                  variant="secondary"
+                  onClick={handleRemovePhoto}
+                  disabled={!profileForm.profileImageUrl || profileUploading}
+                >
+                  Remove photo
+                </Button>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleProfileImageSelected}
+              />
+              <p className="mt-3 text-xs leading-5 text-gray-500">
+                JPG, PNG, WEBP, or another image file up to 5MB. The upload is stored in your Cloudinary account.
+              </p>
+              {!isCloudinaryConfigured() ? (
+                <p className="mt-2 text-xs leading-5 text-amber-700">
+                  Configure <code>VITE_CLOUDINARY_CLOUD_NAME</code> and <code>VITE_CLOUDINARY_UPLOAD_PRESET</code> in the frontend environment to enable uploads.
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <label className="text-sm">
+              <span className="mb-1.5 block font-medium text-gray-700">First name</span>
+              <input
+                className="input-field"
+                value={profileForm.firstName}
+                onChange={(event) => setProfileForm((current) => ({ ...current, firstName: event.target.value }))}
+                placeholder="First name"
+              />
+            </label>
+            <label className="text-sm">
+              <span className="mb-1.5 block font-medium text-gray-700">Last name</span>
+              <input
+                className="input-field"
+                value={profileForm.lastName}
+                onChange={(event) => setProfileForm((current) => ({ ...current, lastName: event.target.value }))}
+                placeholder="Last name"
+              />
+            </label>
+          </div>
+
+          <div className="mt-5">
+            <Button className="w-full justify-center" onClick={handleProfileSave} disabled={profileSaving || profileUploading}>
+              {profileSaving ? 'Saving profile...' : 'Save profile'}
+            </Button>
+          </div>
+
+          <dl className="mt-5 space-y-3 text-sm">
             <div>
               <dt className="text-gray-500">Email</dt>
-              <dd className="mt-1 font-medium text-gray-900">{claims?.email || 'Unknown'}</dd>
+              <dd className="mt-1 font-medium text-gray-900">{profile?.email || claims?.email || 'Unknown'}</dd>
             </div>
             <div>
               <dt className="text-gray-500">User ID</dt>
@@ -299,6 +486,34 @@ export default function Settings() {
               )}
             </div>
           </div>
+        </Card>
+
+        <Card title="Active Sessions" subtitle="Review your provider sessions and revoke any that should no longer stay active." className="xl:col-span-2">
+          {sessionsLoading ? (
+            <p className="text-sm text-gray-500">Loading active sessions...</p>
+          ) : sessions.length === 0 ? (
+            <p className="text-sm text-gray-500">No active sessions found.</p>
+          ) : (
+            <div className="space-y-3">
+              {sessions.map((session) => (
+                <div key={session.jti} className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-gray-900">{session.client_id || 'Admin console session'}</p>
+                    <p className="mt-1 truncate text-xs text-gray-500">{session.user_agent || 'Unknown browser'}</p>
+                    <p className="mt-1 text-xs text-gray-500">IP: {session.ip_address || 'Unavailable'}</p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    className="justify-center"
+                    onClick={() => revokeSession(session.jti)}
+                    disabled={revokingSessionJti === session.jti}
+                  >
+                    {revokingSessionJti === session.jti ? 'Revoking...' : 'Revoke session'}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </Card>
 
         <Card title="Multi-Factor Authentication" subtitle="Use Google Authenticator with standard TOTP codes." className="xl:col-span-2">

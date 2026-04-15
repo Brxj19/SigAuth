@@ -89,6 +89,11 @@ async def issue_access_token(
     app_groups: list[str],
     app_group_ids: list[str],
     app_roles: list[str],
+    email: Optional[str] = None,
+    email_verified: Optional[bool] = None,
+    name: Optional[str] = None,
+    given_name: Optional[str] = None,
+    family_name: Optional[str] = None,
     lifetime: Optional[int] = None,
 ) -> tuple[str, str, int]:
     """Issue an access token and record it in the tokens table."""
@@ -97,6 +102,11 @@ async def issue_access_token(
         org_id=str(org_id),
         is_super_admin=is_super_admin,
         client_id=client_id,
+        email=email,
+        email_verified=email_verified,
+        name=name,
+        given_name=given_name,
+        family_name=family_name,
         scopes=scopes,
         roles=roles,
         permissions=permissions,

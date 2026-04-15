@@ -3,6 +3,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/client';
 import PageHeader from '../components/PageHeader';
+import UserAvatar from '../components/UserAvatar';
+import { getDisplayName } from '../utils/profile';
 import { hasPermission } from '../utils/permissions';
 
 function normalize(value) {
@@ -115,9 +117,12 @@ export default function SearchResults() {
             </div>
             <div className="divide-y divide-gray-200">
               {results.users.length ? results.users.map((user) => (
-                <Link key={user.id} to={`/users/${user.id}`} className="block px-5 py-4 hover:bg-gray-50">
-                  <p className="text-sm font-medium text-gray-900">{user.email}</p>
-                  <p className="mt-1 text-xs text-gray-500">{`${user.first_name || ''} ${user.last_name || ''}`.trim() || 'No name set'}</p>
+                <Link key={user.id} to={`/users/${user.id}`} className="flex items-center gap-3 px-5 py-4 hover:bg-gray-50">
+                  <UserAvatar user={user} className="h-10 w-10" textClassName="text-xs" />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-gray-900">{user.email}</p>
+                    <p className="mt-1 truncate text-xs text-gray-500">{getDisplayName(user, 'No name set')}</p>
+                  </div>
                 </Link>
               )) : <p className="px-5 py-4 text-sm text-gray-500">No matching users.</p>}
             </div>

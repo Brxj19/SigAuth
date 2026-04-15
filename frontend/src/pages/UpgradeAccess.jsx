@@ -50,6 +50,19 @@ export default function UpgradeAccess() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [demoCheckout, setDemoCheckout] = useState(null);
+  const [upgradeRequestSaving, setUpgradeRequestSaving] = useState(false);
+  const [upgradeRequestForm, setUpgradeRequestForm] = useState({
+    company_name: '',
+    company_website: '',
+    company_size: '',
+    primary_use_case: '',
+    expected_monthly_users: '',
+    requested_features: '',
+    billing_contact_name: '',
+    billing_contact_email: claims?.email || '',
+    notes: '',
+    agree_to_terms: false,
+  });
 
   const refreshPlanStatus = async ({ withLoader = false } = {}) => {
     if (!orgId) return;
@@ -71,6 +84,13 @@ export default function UpgradeAccess() {
     }
     refreshPlanStatus({ withLoader: true });
   }, [orgId]);
+
+  useEffect(() => {
+    setUpgradeRequestForm((current) => ({
+      ...current,
+      billing_contact_email: current.billing_contact_email || claims?.email || '',
+    }));
+  }, [claims?.email]);
 
   const completeCheckout = async (payload) => {
     const res = await api.post(`/api/v1/organizations/${orgId}/billing/checkout-complete`, payload);
@@ -188,6 +208,28 @@ export default function UpgradeAccess() {
     }
   };
 
+  const submitUpgradeRequest = async () => {
+    if (!orgId) return;
+    setUpgradeRequestSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const payload = {
+        ...upgradeRequestForm,
+        expected_monthly_users: upgradeRequestForm.expected_monthly_users
+          ? Number(upgradeRequestForm.expected_monthly_users)
+          : null,
+      };
+      const res = await api.post(`/api/v1/organizations/${orgId}/upgrade-request`, payload);
+      setPlanStatus(res.data);
+      setSuccess('Upgrade request submitted for super-admin review.');
+    } catch (err) {
+      setError(err.response?.data?.detail?.error_description || 'Unable to submit the upgrade request.');
+    } finally {
+      setUpgradeRequestSaving(false);
+    }
+  };
+
   if (loading) {
     return <div className="py-20 text-center text-gray-500">Loading billing details...</div>;
   }
@@ -211,6 +253,7 @@ export default function UpgradeAccess() {
   const activePaidPlanCode = subscription?.status === 'active' && PAID_PLAN_CODES.has(subscription?.plan_code)
     ? subscription.plan_code
     : null;
+  const upgradeRequest = planStatus.upgrade_request;
 
   return (
     <div className="space-y-6">
@@ -463,6 +506,87 @@ export default function UpgradeAccess() {
           </div>
         )}
       </section>
+
+      {planStatus.access_tier === 'limited' ? (
+        <section className="surface p-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">Verification upgrade</p>
+              <h2 className="mt-1 text-2xl font-semibold text-gray-900">Request full access review</h2>
+              <p className="mt-1 text-sm text-gray-600">Submit organization details so a super admin can review and unlock verified enterprise access.</p>
+            </div>
+            {upgradeRequest?.status ? (
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
+                Request status: {upgradeRequest.status}
+              </span>
+            ) : null}
+          </div>
+
+          {upgradeRequest?.payload ? (
+            <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+              <p className="font-medium text-gray-900">Most recent submission</p>
+              <p className="mt-1 text-xs text-gray-500">
+                Submitted {upgradeRequest.submitted_at ? new Date(upgradeRequest.submitted_at).toLocaleString() : 'recently'} by {upgradeRequest.submitted_by_email || 'an org admin'}.
+              </p>
+            </div>
+          ) : null}
+
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <label className="text-sm">
+              <span className="mb-1.5 block font-medium text-gray-700">Organization name</span>
+              <input className="input-field" value={upgradeRequestForm.company_name} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, company_name: e.target.value }))} />
+            </label>
+            <label className="text-sm">
+              <span className="mb-1.5 block font-medium text-gray-700">Website</span>
+              <input className="input-field" value={upgradeRequestForm.company_website} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, company_website: e.target.value }))} placeholder="https://example.com" />
+            </label>
+            <label className="text-sm">
+              <span className="mb-1.5 block font-medium text-gray-700">Company size</span>
+              <input className="input-field" value={upgradeRequestForm.company_size} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, company_size: e.target.value }))} placeholder="1-10, 11-50, 51-200..." />
+            </label>
+            <label className="text-sm">
+              <span className="mb-1.5 block font-medium text-gray-700">Expected monthly users</span>
+              <input className="input-field" type="number" min="0" value={upgradeRequestForm.expected_monthly_users} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, expected_monthly_users: e.target.value }))} />
+            </label>
+            <label className="text-sm md:col-span-2">
+              <span className="mb-1.5 block font-medium text-gray-700">Primary use case</span>
+              <textarea className="input-field min-h-[108px]" value={upgradeRequestForm.primary_use_case} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, primary_use_case: e.target.value }))} />
+            </label>
+            <label className="text-sm md:col-span-2">
+              <span className="mb-1.5 block font-medium text-gray-700">Requested features</span>
+              <textarea className="input-field min-h-[108px]" value={upgradeRequestForm.requested_features} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, requested_features: e.target.value }))} />
+            </label>
+            <label className="text-sm">
+              <span className="mb-1.5 block font-medium text-gray-700">Billing contact name</span>
+              <input className="input-field" value={upgradeRequestForm.billing_contact_name} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, billing_contact_name: e.target.value }))} />
+            </label>
+            <label className="text-sm">
+              <span className="mb-1.5 block font-medium text-gray-700">Billing contact email</span>
+              <input className="input-field" type="email" value={upgradeRequestForm.billing_contact_email} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, billing_contact_email: e.target.value }))} />
+            </label>
+            <label className="text-sm md:col-span-2">
+              <span className="mb-1.5 block font-medium text-gray-700">Notes</span>
+              <textarea className="input-field min-h-[120px]" value={upgradeRequestForm.notes} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, notes: e.target.value }))} />
+            </label>
+          </div>
+
+          <label className="mt-5 flex items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={upgradeRequestForm.agree_to_terms}
+              onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, agree_to_terms: e.target.checked }))}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300"
+            />
+            <span>I confirm that these details are accurate and that the organization is requesting a verified enterprise review.</span>
+          </label>
+
+          <div className="mt-5 flex justify-end">
+            <button type="button" onClick={submitUpgradeRequest} disabled={upgradeRequestSaving} className="btn-primary">
+              {upgradeRequestSaving ? 'Submitting...' : 'Submit upgrade request'}
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {demoCheckout ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">

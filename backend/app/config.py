@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     ADMIN_CONSOLE_URL: str = "http://localhost:3000"
     ID_TOKEN_LIFETIME: int = 3600
     ACCESS_TOKEN_LIFETIME: int = 3600
+    BROWSER_SSO_TTL_SECONDS: int = 43200
 
     # Admin seed
     ADMIN_EMAIL: str = "admin@internal.com"

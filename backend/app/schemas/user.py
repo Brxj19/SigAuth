@@ -19,12 +19,19 @@ class UserUpdate(BaseModel):
     last_name: Optional[str] = None
 
 
+class CurrentUserProfileUpdate(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    profile_image_url: Optional[str] = None
+
+
 class UserResponse(BaseModel):
     id: UUID
     org_id: UUID
     email: str
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    profile_image_url: Optional[str] = None
     status: str
     email_verified: bool
     is_super_admin: bool = False
@@ -40,6 +47,20 @@ class UserDetailResponse(UserResponse):
     groups: list[dict[str, Any]] = Field(default_factory=list)
     roles: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
+
+
+class CurrentUserProfileResponse(BaseModel):
+    id: UUID
+    org_id: UUID
+    email: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    profile_image_url: Optional[str] = None
+    status: str
+    email_verified: bool
+    is_super_admin: bool = False
+
+    model_config = {"from_attributes": True}
 
 
 class UserListResponse(BaseModel):

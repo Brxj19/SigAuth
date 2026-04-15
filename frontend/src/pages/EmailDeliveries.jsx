@@ -11,17 +11,24 @@ export default function EmailDeliveries() {
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
+  const [eventKey, setEventKey] = useState('');
+  const [toEmail, setToEmail] = useState('');
   const [processing, setProcessing] = useState(false);
 
   const fetchRows = async (loadMore = false) => {
-    if (!orgId) return;
+    if (!orgId && !isSuperAdmin) return;
     setLoading(true);
     const params = new URLSearchParams();
     params.set('limit', '25');
     if (status) params.set('status', status);
+    if (eventKey) params.set('event_key', eventKey);
+    if (toEmail) params.set('to_email', toEmail);
     if (loadMore && cursor) params.set('cursor', cursor);
     try {
-      const res = await api.get(`/api/v1/organizations/${orgId}/email-deliveries?${params.toString()}`);
+      const basePath = isSuperAdmin
+        ? '/api/v1/admin/email-deliveries'
+        : `/api/v1/organizations/${orgId}/email-deliveries`;
+      const res = await api.get(`${basePath}?${params.toString()}`);
       const data = res.data?.data || [];
       const pagination = res.data?.pagination || {};
       setRows((prev) => (loadMore ? [...prev, ...data] : data));
@@ -32,7 +39,7 @@ export default function EmailDeliveries() {
     }
   };
 
-  useEffect(() => { fetchRows(false); }, [orgId, status]);
+  useEffect(() => { fetchRows(false); }, [orgId, status, eventKey, toEmail, isSuperAdmin]);
 
   const processQueue = async () => {
     setProcessing(true);
@@ -59,6 +66,18 @@ export default function EmailDeliveries() {
               <option value="failed">failed</option>
               <option value="dead">dead</option>
             </select>
+            <input
+              value={eventKey}
+              onChange={(e) => setEventKey(e.target.value)}
+              className="input-field max-w-[200px] text-sm"
+              placeholder="Event key"
+            />
+            <input
+              value={toEmail}
+              onChange={(e) => setToEmail(e.target.value)}
+              className="input-field max-w-[220px] text-sm"
+              placeholder="Recipient email"
+            />
             {isSuperAdmin && <button onClick={processQueue} disabled={processing} className="btn-secondary text-sm">{processing ? 'Processing...' : 'Process queue'}</button>}
           </div>
         }

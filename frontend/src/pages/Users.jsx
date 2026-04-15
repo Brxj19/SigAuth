@@ -5,8 +5,10 @@ import api from '../api/client';
 import PageHeader from '../components/PageHeader';
 import CopyButton from '../components/CopyButton';
 import Table from '../components/Table';
+import UserAvatar from '../components/UserAvatar';
 import { CheckIcon, PlusIcon, SearchIcon, XIcon } from '../components/Icons';
 import useDebouncedValue from '../hooks/useDebouncedValue';
+import { getDisplayName } from '../utils/profile';
 import { hasPermission as userHasPermission } from '../utils/permissions';
 
 export default function Users() {
@@ -54,7 +56,11 @@ export default function Users() {
     <tr key={user.id} className="table-row">
       <td className="px-6 py-3">
         <div className="flex items-center gap-2">
-          <Link to={`/users/${user.id}`} className="font-medium text-indigo-600 hover:text-indigo-700">{user.email}</Link>
+          <UserAvatar user={user} className="h-9 w-9" textClassName="text-xs" />
+          <div className="min-w-0">
+            <Link to={`/users/${user.id}`} className="block truncate font-medium text-indigo-600 hover:text-indigo-700">{user.email}</Link>
+            <p className="truncate text-xs text-gray-500">{getDisplayName(user, 'No name set')}</p>
+          </div>
           <CopyButton value={user.email} label="Copy email" />
         </div>
       </td>

@@ -10,9 +10,11 @@ export default function PasswordResetConfirm() {
   const navigate = useNavigate();
   const token = useMemo(() => params.get('token') || '', [params]);
   const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const passwordsMatch = newPassword.length > 0 && newPassword === confirmPassword;
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -22,6 +24,10 @@ export default function PasswordResetConfirm() {
       setError('Missing reset token. Open the link from your email again.');
       return;
     }
+    if (!passwordsMatch) {
+      setError('Confirm password must match the new password.');
+      return;
+    }
     setLoading(true);
     try {
       const res = await api.post('/api/v1/password-reset/confirm', { token, new_password: newPassword });
@@ -29,6 +35,7 @@ export default function PasswordResetConfirm() {
       localStorage.setItem(LOGOUT_SYNC_KEY, String(Date.now()));
       setMessage(res.data?.message || 'Password reset complete. Please sign in again.');
       setNewPassword('');
+      setConfirmPassword('');
       setTimeout(() => navigate('/login', { replace: true }), 1200);
     } catch (err) {
       setError(err.response?.data?.detail?.error_description || 'Unable to reset password');
@@ -52,6 +59,16 @@ export default function PasswordResetConfirm() {
             <label className="mb-1.5 block text-sm font-medium text-dark-300">New password</label>
             <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required className="input-field" />
             <PasswordCriteria password={newPassword} />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-dark-300">Confirm password</label>
+            <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required className="input-field" />
+            <div className="password-criteria">
+              <div className={`password-rule ${passwordsMatch ? 'valid' : 'invalid'}`}>
+                <span className="password-rule-dot" />
+                {passwordsMatch ? 'Password matches' : 'Password does not match yet'}
+              </div>
+            </div>
           </div>
           <button type="submit" disabled={loading} className="btn-primary w-full">{loading ? 'Saving...' : 'Reset password'}</button>
         </form>
