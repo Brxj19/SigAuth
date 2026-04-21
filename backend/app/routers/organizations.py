@@ -14,7 +14,7 @@ from app.dependencies import get_db, get_redis, require_super_admin, require_per
 from app.schemas.organization import (
     OrganizationCreate, OrganizationUpdate, OrganizationResponse, OrganizationListResponse,
     OrganizationCreateResponse, BootstrapAdminResponse,
-    UpgradeRequestCreate, PlanStatusResponse, PendingUpgradeRequestListResponse, PendingUpgradeRequestItem,
+    UpgradeRequestCreate, OrganizationSetLimitedRequest, PlanStatusResponse, PendingUpgradeRequestListResponse, PendingUpgradeRequestItem,
     BillingCheckoutCreate, BillingCheckoutComplete, BillingCheckoutSessionResponse,
 )
 from app.services.billing_service import (
@@ -38,7 +38,7 @@ from app.services.session_service import revoke_provider_session
 from app.models.user import User
 import redis.asyncio as aioredis
 from app.services.audit_service import write_audit_event
-from app.services.notification_service import send_admin_activity_notification, send_notification_event
+from app.services.notification_service import send_admin_activity_notification, send_notification_event, send_org_admin_notification
 from app.services.email_service import send_invitation_email
 from app.utils.crypto_utils import generate_reset_token
 from app.config import settings
@@ -60,6 +60,34 @@ def _is_paid_self_serve_organization(org: Organization) -> bool:
     subscription = billing.get("subscription") if isinstance(billing.get("subscription"), dict) else {}
     subscription_plan_code = str(subscription.get("plan_code") or "").strip().lower()
     return subscription_plan_code in {"go", "plus", "pro"}
+
+
+def _close_upgrade_request(
+    settings: dict,
+    *,
+    actor_user_id: UUID,
+    outcome: str,
+    review_source: str,
+) -> dict:
+    request = settings.get("upgrade_request")
+    if not isinstance(request, dict):
+        return settings
+
+    now = datetime.now(timezone.utc).isoformat()
+    archived_request = dict(request)
+    archived_request["status"] = outcome
+    archived_request["review_source"] = review_source
+    if outcome == "approved":
+        archived_request["approved_at"] = now
+        archived_request["approved_by_user_id"] = str(actor_user_id)
+    else:
+        archived_request["rejected_at"] = now
+        archived_request["rejected_by_user_id"] = str(actor_user_id)
+
+    settings["last_reviewed_upgrade_request"] = archived_request
+    settings.pop("upgrade_request", None)
+    settings["verification_status"] = "approved" if outcome == "approved" else "rejected"
+    return settings
 
 
 def _require_org_admin(current_user: dict) -> None:
@@ -163,6 +191,8 @@ async def list_pending_upgrade_requests(
     items: list[PendingUpgradeRequestItem] = []
     for org in organizations:
         settings = org.settings or {}
+        if get_org_access_tier(settings) != "limited":
+            continue
         request = settings.get("upgrade_request") if isinstance(settings, dict) else None
         if not isinstance(request, dict):
             continue
@@ -292,6 +322,19 @@ async def verify_organization_enterprise(
     if not org:
         raise HTTPException(404, detail={"error": "not_found", "error_description": "Organization not found"})
 
+    settings = dict(org.settings or {})
+    existing_request = settings.get("upgrade_request")
+    if isinstance(existing_request, dict) and str(existing_request.get("status")) == "submitted":
+        settings = _close_upgrade_request(
+            settings,
+            actor_user_id=current_user["user_id"],
+            outcome="approved",
+            review_source="verify_enterprise",
+        )
+        org.settings = settings
+        org.updated_at = datetime.now(timezone.utc)
+        await db.flush()
+
     await write_audit_event(
         db,
         "org.access_tier.verified",
@@ -301,6 +344,24 @@ async def verify_organization_enterprise(
         actor_id=current_user["user_id"],
         metadata={"org_name": org.name, "access_tier": "verified_enterprise"},
     )
+
+    if isinstance(existing_request, dict) and str(existing_request.get("status")) == "submitted":
+        await write_audit_event(
+            db,
+            "org.upgrade_request.approved",
+            "organization",
+            str(org.id),
+            org_id=org.id,
+            actor_id=current_user["user_id"],
+            metadata={"org_name": org.name, "access_tier": "verified_enterprise", "approval_source": "verify_enterprise"},
+        )
+        await send_org_admin_notification(
+            db=db,
+            org_id=org.id,
+            title="Upgrade request approved",
+            message=f"Your enterprise access request for {org.display_name or org.name} was approved. The organization now has verified enterprise access.",
+            event_key="org.upgrade_request.approved",
+        )
     return OrganizationResponse.model_validate(org)
 
 
@@ -321,17 +382,17 @@ async def approve_upgrade_request(
     settings = dict(org.settings or {})
     existing_request = settings.get("upgrade_request")
     if isinstance(existing_request, dict):
-        existing_request.update(
-            {
-                "status": "approved",
-                "approved_at": datetime.now(timezone.utc).isoformat(),
-                "approved_by_user_id": str(current_user["user_id"]),
-            }
+        settings = _close_upgrade_request(
+            settings,
+            actor_user_id=current_user["user_id"],
+            outcome="approved",
+            review_source="approve_upgrade_request",
         )
-        settings["upgrade_request"] = existing_request
-    settings["verification_status"] = "approved"
+    else:
+        settings["verification_status"] = "approved"
     org.settings = settings
     org.updated_at = datetime.now(timezone.utc)
+    await db.flush()
 
     await write_audit_event(
         db,
@@ -342,12 +403,68 @@ async def approve_upgrade_request(
         actor_id=current_user["user_id"],
         metadata={"org_name": org.name, "access_tier": "verified_enterprise"},
     )
+    await send_org_admin_notification(
+        db=db,
+        org_id=org.id,
+        title="Upgrade request approved",
+        message=f"Your enterprise access request for {org.display_name or org.name} was approved. The organization now has verified enterprise access.",
+        event_key="org.upgrade_request.approved",
+    )
+    return OrganizationResponse.model_validate(org)
+
+
+@router.post("/{org_id}/reject-upgrade-request", response_model=OrganizationResponse)
+async def reject_upgrade_request(
+    org_id: UUID,
+    current_user: dict = Depends(require_super_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reject a pending upgrade request and close it so the org must reapply."""
+    org = await get_organization(db, org_id)
+    if not org:
+        raise HTTPException(404, detail={"error": "not_found", "error_description": "Organization not found"})
+
+    settings = dict(org.settings or {})
+    existing_request = settings.get("upgrade_request")
+    if not isinstance(existing_request, dict) or str(existing_request.get("status")) != "submitted":
+        raise HTTPException(
+            400,
+            detail={"error": "no_pending_request", "error_description": "There is no pending upgrade request to reject."},
+        )
+
+    settings = _close_upgrade_request(
+        settings,
+        actor_user_id=current_user["user_id"],
+        outcome="rejected",
+        review_source="reject_upgrade_request",
+    )
+    org.settings = settings
+    org.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+
+    await write_audit_event(
+        db,
+        "org.upgrade_request.rejected",
+        "organization",
+        str(org.id),
+        org_id=org.id,
+        actor_id=current_user["user_id"],
+        metadata={"org_name": org.name, "access_tier": get_org_access_tier(settings)},
+    )
+    await send_org_admin_notification(
+        db=db,
+        org_id=org.id,
+        title="Upgrade request rejected",
+        message=f"Your enterprise access request for {org.display_name or org.name} was rejected. Submit a fresh request after updating the organization details.",
+        event_key="org.upgrade_request.rejected",
+    )
     return OrganizationResponse.model_validate(org)
 
 
 @router.post("/{org_id}/set-limited", response_model=OrganizationResponse)
 async def set_organization_limited(
     org_id: UUID,
+    body: OrganizationSetLimitedRequest,
     current_user: dict = Depends(require_super_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -377,7 +494,14 @@ async def set_organization_limited(
         str(org.id),
         org_id=org.id,
         actor_id=current_user["user_id"],
-        metadata={"org_name": org.name, "access_tier": "limited"},
+        metadata={"org_name": org.name, "access_tier": "limited", "reason": body.reason},
+    )
+    await send_org_admin_notification(
+        db=db,
+        org_id=org.id,
+        title="Organization moved to limited tier",
+        message=f"{org.display_name or org.name} was moved back to the limited tier by the platform team. Reason: {body.reason}",
+        event_key="org.access_tier.limited",
     )
     return OrganizationResponse.model_validate(org)
 
@@ -665,13 +789,13 @@ async def submit_upgrade_request(
         actor_id=current_user["user_id"],
         metadata={"org_name": org.name, "submitted_by": current_user.get("email")},
     )
-
-    return PlanStatusResponse(
-        org_id=org.id,
-        org_name=org.display_name or org.name,
-        org_slug=org.slug,
-        access_tier=get_org_access_tier(settings),
-        verification_status=str(settings.get("verification_status") or "pending_review"),
-        limits=get_org_limits(settings),
-        upgrade_request=settings.get("upgrade_request"),
+    await send_admin_activity_notification(
+        db=db,
+        org_id=None,
+        actor_user_id=current_user["user_id"],
+        title="New enterprise upgrade request",
+        message=f"{org.display_name or org.name} submitted an enterprise access review request. Open the organization record to review the details.",
+        event_key="org.upgrade_request.submitted",
     )
+
+    return PlanStatusResponse(**build_plan_status_payload(org))

@@ -15,7 +15,7 @@ def _layout(title: str, body_html: str) -> str:
           <td align="center">
             <table role="presentation" width="620" cellspacing="0" cellpadding="0" style="background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
               <tr>
-                <td style="background:#1d4ed8;color:#ffffff;padding:18px 24px;font-size:18px;font-weight:700;">
+                <td style="background:#111827;color:#ffffff;padding:18px 24px;font-size:18px;font-weight:700;">
                   {PRODUCT_NAME}
                 </td>
               </tr>
@@ -45,7 +45,7 @@ def verification_email_html(verify_url: str) -> str:
         f"""
         <p style="margin:0 0 12px 0;">Please verify your email address to complete account activation.</p>
         <p style="margin:0 0 16px 0;">
-          <a href="{verify_url}" style="display:inline-block;padding:10px 14px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;">Verify Email</a>
+          <a href="{verify_url}" style="display:inline-block;padding:10px 14px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;">Verify Email</a>
         </p>
         <p style="margin:0;font-size:13px;color:#64748b;">This link expires in 24 hours.</p>
         """,
@@ -57,8 +57,8 @@ def verification_code_email_html(code: str, expiry_minutes: int) -> str:
         "Verify your email",
         f"""
         <p style="margin:0 0 12px 0;">Use this one-time verification code to confirm your email address and finish activating your self-serve organization account.</p>
-        <div style="margin:0 0 16px 0;padding:16px;border:1px solid #dbeafe;border-radius:10px;background:#eff6ff;text-align:center;">
-          <p style="margin:0 0 6px 0;font-size:13px;color:#1e3a8a;font-weight:700;">Verification code</p>
+        <div style="margin:0 0 16px 0;padding:16px;border:1px solid #d1d5db;border-radius:10px;background:#f8fafc;text-align:center;">
+          <p style="margin:0 0 6px 0;font-size:13px;color:#111827;font-weight:700;">Verification code</p>
           <p style="margin:0;font-size:28px;letter-spacing:6px;font-weight:800;color:#0f172a;">{code}</p>
         </div>
         <p style="margin:0;font-size:13px;color:#64748b;">This code expires in {expiry_minutes} minutes.</p>
@@ -72,7 +72,7 @@ def password_reset_email_html(reset_url: str) -> str:
         f"""
         <p style="margin:0 0 12px 0;">We received a password reset request for your account.</p>
         <p style="margin:0 0 16px 0;">
-          <a href="{reset_url}" style="display:inline-block;padding:10px 14px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;">Reset Password</a>
+          <a href="{reset_url}" style="display:inline-block;padding:10px 14px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;">Reset Password</a>
         </p>
         <p style="margin:0;font-size:13px;color:#64748b;">This link expires in 1 hour.</p>
         """,
@@ -83,8 +83,8 @@ def invitation_email_html(setup_url: str, expiry_hours: int, temporary_password:
     temporary_password_block = ""
     if temporary_password:
         temporary_password_block = f"""
-        <div style="margin:0 0 16px 0;padding:14px;border:1px solid #dbeafe;border-radius:10px;background:#eff6ff;">
-          <p style="margin:0 0 6px 0;font-size:13px;color:#1e3a8a;font-weight:700;">Temporary credential</p>
+        <div style="margin:0 0 16px 0;padding:14px;border:1px solid #d1d5db;border-radius:10px;background:#f8fafc;">
+          <p style="margin:0 0 6px 0;font-size:13px;color:#111827;font-weight:700;">Temporary credential</p>
           <p style="margin:0;font-size:14px;color:#0f172a;"><strong>Password:</strong> <code style="font-size:13px;">{temporary_password}</code></p>
           <p style="margin:8px 0 0 0;font-size:12px;color:#475569;">Use the setup link below to create your permanent password before first sign-in.</p>
         </div>
@@ -97,7 +97,7 @@ def invitation_email_html(setup_url: str, expiry_hours: int, temporary_password:
         <p style="margin:0 0 12px 0;">Complete your account setup and create your password using the link below.</p>
         {temporary_password_block}
         <p style="margin:0 0 16px 0;">
-          <a href="{setup_url}" style="display:inline-block;padding:10px 14px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;">Set Up Account</a>
+          <a href="{setup_url}" style="display:inline-block;padding:10px 14px;background:#111827;color:#ffffff;text-decoration:none;border-radius:8px;">Set Up Account</a>
         </p>
         <p style="margin:0;font-size:13px;color:#64748b;">This invitation expires in {expiry_hours} hours.</p>
         """,

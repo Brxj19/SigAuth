@@ -43,6 +43,10 @@ DEFAULT_NOTIFICATION_EVENTS = {
     "billing.cancel_reminder",
     *SECURITY_ALERT_EVENT_KEYS,
     "admin.activity",
+    "org.upgrade_request.submitted",
+    "org.upgrade_request.approved",
+    "org.upgrade_request.rejected",
+    "org.access_tier.limited",
 }
 
 SUPPORTED_NOTIFICATION_EVENTS = {
@@ -268,6 +272,10 @@ def _weekly_summary_label(event_key: str) -> str:
         "account.invitation_accepted": "Accepted invitations",
         "admin.activity": "Admin activity",
         "org.self_serve_signup": "Self-serve organization signups",
+        "org.upgrade_request.submitted": "Upgrade requests submitted",
+        "org.upgrade_request.approved": "Upgrade requests approved",
+        "org.upgrade_request.rejected": "Upgrade requests rejected",
+        "org.access_tier.limited": "Organizations moved to limited tier",
         "org.billing.checkout.started": "Billing checkouts started",
         "org.billing.checkout.completed": "Billing checkouts completed",
         "org.subscription.cancel_at_period_end": "Subscription cancellations scheduled",

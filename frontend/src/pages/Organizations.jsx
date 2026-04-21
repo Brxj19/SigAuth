@@ -79,6 +79,11 @@ export default function Organizations() {
                 >
                   <p className="text-sm font-semibold text-slate-900">{request.org_name}</p>
                   <p className="mt-1 text-xs text-slate-600">{request.submitted_by_email || 'Unknown requester'}</p>
+                  {request.payload?.company_name ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Request for: {request.payload.company_name}
+                    </p>
+                  ) : null}
                   <p className="mt-2 text-xs text-slate-500">
                     Submitted {request.submitted_at ? new Date(request.submitted_at).toLocaleString() : 'recently'}
                   </p>

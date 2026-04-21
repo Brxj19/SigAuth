@@ -61,6 +61,7 @@ export default function UpgradeAccess() {
   const [success, setSuccess] = useState('');
   const [demoCheckout, setDemoCheckout] = useState(null);
   const [upgradeRequestSaving, setUpgradeRequestSaving] = useState(false);
+  const [showUpgradeRequestForm, setShowUpgradeRequestForm] = useState(false);
   const [upgradeRequestForm, setUpgradeRequestForm] = useState({
     company_name: '',
     company_website: '',
@@ -101,6 +102,24 @@ export default function UpgradeAccess() {
       billing_contact_email: current.billing_contact_email || claims?.email || '',
     }));
   }, [claims?.email]);
+
+  useEffect(() => {
+    const payload = planStatus?.upgrade_request?.payload;
+    if (!payload || typeof payload !== 'object') return;
+    setUpgradeRequestForm((current) => ({
+      ...current,
+      company_name: payload.company_name || current.company_name,
+      company_website: payload.company_website || current.company_website,
+      company_size: payload.company_size || current.company_size,
+      primary_use_case: payload.primary_use_case || current.primary_use_case,
+      expected_monthly_users: payload.expected_monthly_users ?? current.expected_monthly_users,
+      requested_features: payload.requested_features || current.requested_features,
+      billing_contact_name: payload.billing_contact_name || current.billing_contact_name,
+      billing_contact_email: payload.billing_contact_email || current.billing_contact_email,
+      notes: payload.notes || current.notes,
+      agree_to_terms: Boolean(payload.agreed_to_terms ?? current.agree_to_terms),
+    }));
+  }, [planStatus?.upgrade_request]);
 
   const completeCheckout = async (payload) => {
     const res = await api.post(`/api/v1/organizations/${orgId}/billing/checkout-complete`, payload);
@@ -270,13 +289,17 @@ export default function UpgradeAccess() {
   );
   const visiblePlans = availablePlans.filter((plan) => !PAID_PLAN_CODES.has(plan.code) || getPlanRank(plan.code) >= paidPlanBaseline);
   const upgradeRequest = planStatus.upgrade_request;
+  const isAdminProvisionedPlan = currentPlanCode === 'enterprise_manual' || !!subscription?.managed_manually;
+  const shouldShowPlanCatalog = !isAdminProvisionedPlan;
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Billing"
         title="Plans And Subscription"
-        description="Choose a paid plan, collect a demo payment, and manage the organization subscription lifecycle from one place."
+        description={isAdminProvisionedPlan
+          ? 'Review the organization access state and recent billing history for this manually approved enterprise tenant.'
+          : 'Choose a paid plan, collect a demo payment, and manage the organization subscription lifecycle from one place.'}
       />
 
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
@@ -285,8 +308,8 @@ export default function UpgradeAccess() {
       <section className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
         <article className="surface p-6">
           <div className="flex flex-wrap items-center gap-3">
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${planStatus.access_tier === 'limited' ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900'}`}>
-              {planStatus.access_tier === 'limited' ? 'Free Tier' : 'Paid Tier'}
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${planStatus.access_tier === 'limited' ? 'bg-amber-100 text-amber-900' : isAdminProvisionedPlan ? 'bg-slate-200 text-slate-900' : 'bg-emerald-100 text-emerald-900'}`}>
+              {planStatus.access_tier === 'limited' ? 'Free Tier' : isAdminProvisionedPlan ? 'Admin Provisioned' : 'Paid Tier'}
             </span>
             <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">
               Current plan: {currentPlan?.name || formatPlanName(currentPlanCode)}
@@ -298,32 +321,42 @@ export default function UpgradeAccess() {
 
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">Provider</p>
-              <p className="mt-2 text-lg font-semibold text-gray-900">{planStatus.billing_provider === 'razorpay' ? 'Razorpay' : 'Demo Checkout'}</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">{isAdminProvisionedPlan ? 'Provisioning mode' : 'Provider'}</p>
+              <p className="mt-2 text-lg font-semibold text-gray-900">
+                {isAdminProvisionedPlan ? 'Super-admin review' : planStatus.billing_provider === 'razorpay' ? 'Razorpay' : 'Demo Checkout'}
+              </p>
               <p className="mt-1 text-sm text-gray-600">
-                {planStatus.gateway_ready
-                  ? 'Checkout is ready for the current provider.'
-                  : 'Gateway keys are not configured, so demo checkout mode will be used.'}
+                {isAdminProvisionedPlan
+                  ? 'This organization has full access through manual enterprise verification, not through self-serve billing.'
+                  : planStatus.gateway_ready
+                    ? 'Checkout is ready for the current provider.'
+                    : 'Gateway keys are not configured, so demo checkout mode will be used.'}
               </p>
             </div>
             <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">Payment method</p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('upi')}
-                  className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${paymentMethod === 'upi' ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'}`}
-                >
-                  UPI
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('card')}
-                  className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${paymentMethod === 'card' ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'}`}
-                >
-                  Card
-                </button>
-              </div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">{isAdminProvisionedPlan ? 'Plan model' : 'Payment method'}</p>
+              {isAdminProvisionedPlan ? (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700">
+                  Subscription plan cards are hidden because this organization is on the legacy admin-provisioned enterprise track.
+                </div>
+              ) : (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('upi')}
+                    className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${paymentMethod === 'upi' ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'}`}
+                  >
+                    UPI
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('card')}
+                    className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${paymentMethod === 'card' ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'}`}
+                  >
+                    Card
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </article>
@@ -334,11 +367,13 @@ export default function UpgradeAccess() {
             {subscription?.plan_name || currentPlan?.name || 'Free'}
           </h2>
           <p className="mt-1 text-sm text-gray-600">
-            {subscription?.status === 'expired'
-              ? 'Your paid subscription cycle has ended and the organization is back on the free tier until renewal.'
-              : currentPlanCode === 'free'
-                ? 'This organization is currently running on the free self-serve tier.'
-                : 'A paid subscription is currently active for this organization.'}
+            {isAdminProvisionedPlan
+              ? 'This organization has been verified by a super admin and is running on the manually provisioned enterprise track.'
+              : subscription?.status === 'expired'
+                ? 'Your paid subscription cycle has ended and the organization is back on the free tier until renewal.'
+                : currentPlanCode === 'free'
+                  ? 'This organization is currently running on the free self-serve tier.'
+                  : 'A paid subscription is currently active for this organization.'}
           </p>
 
           <dl className="mt-5 space-y-3 text-sm">
@@ -363,7 +398,11 @@ export default function UpgradeAccess() {
           </dl>
 
           <div className="mt-5 flex flex-wrap gap-3">
-            {activePaidPlanCode ? (
+            {isAdminProvisionedPlan ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                Enterprise access for this organization is managed by the platform team. No renewal or cancellation action is needed here.
+              </div>
+            ) : activePaidPlanCode ? (
               <>
                 <button
                   type="button"
@@ -404,7 +443,7 @@ export default function UpgradeAccess() {
               </button>
             ) : null}
           </div>
-          {!renewalAvailable && activePaidPlanCode ? (
+          {!isAdminProvisionedPlan && !renewalAvailable && activePaidPlanCode ? (
             <p className="mt-3 text-sm text-gray-500">
               Renewal becomes available when the current billing period ends on {formatDate(planStatus.renewal_available_at)}.
             </p>
@@ -412,83 +451,94 @@ export default function UpgradeAccess() {
         </article>
       </section>
 
-      <section className="surface p-6">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">Plans</p>
-            <h2 className="mt-1 text-2xl font-semibold text-gray-900">Choose the right tier for your organization</h2>
-            <p className="mt-1 text-sm text-gray-600">For the internship demo, these plans are intentionally priced at Rs 1, Rs 3, and Rs 5 per billing cycle.</p>
+      {shouldShowPlanCatalog ? (
+        <section className="surface p-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">Plans</p>
+              <h2 className="mt-1 text-2xl font-semibold text-gray-900">Choose the right tier for your organization</h2>
+              <p className="mt-1 text-sm text-gray-600">For the internship demo, these plans are intentionally priced at Rs 1, Rs 3, and Rs 5 per billing cycle.</p>
+            </div>
+            <p className="text-sm text-gray-500">Every subscription cycle runs for {currentPlan?.cycle_days || 30} days.</p>
           </div>
-          <p className="text-sm text-gray-500">Every subscription cycle runs for {currentPlan?.cycle_days || 30} days.</p>
-        </div>
 
-        <div className="mt-6 grid gap-4 xl:grid-cols-4">
-          {visiblePlans.map((plan) => {
-            const isCurrent = currentPlanCode === plan.code && subscription?.status === 'active';
-            const isPaidPlan = PAID_PLAN_CODES.has(plan.code);
-            const buttonLabel = !isPaidPlan
-              ? 'Current free tier'
-              : isCurrent
-                ? 'Current plan'
-                : currentPlanCode === 'free'
-                  ? `Upgrade to ${plan.name}`
-                  : `Switch to ${plan.name}`;
+          <div className="mt-6 grid gap-4 xl:grid-cols-4">
+            {visiblePlans.map((plan) => {
+              const isCurrent = currentPlanCode === plan.code && subscription?.status === 'active';
+              const isPaidPlan = PAID_PLAN_CODES.has(plan.code);
+              const buttonLabel = !isPaidPlan
+                ? 'Current free tier'
+                : isCurrent
+                  ? 'Current plan'
+                  : currentPlanCode === 'free'
+                    ? `Upgrade to ${plan.name}`
+                    : `Switch to ${plan.name}`;
 
-            return (
-              <article
-                key={plan.code}
-                className={`rounded-3xl border p-5 transition-all ${plan.code === 'plus' ? 'border-gray-900 bg-gray-900 text-white shadow-xl' : 'border-gray-200 bg-white text-gray-900'}`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${plan.code === 'plus' ? 'text-gray-300' : 'text-gray-500'}`}>{plan.badge}</p>
-                    <h3 className="mt-2 text-2xl font-semibold">{plan.name}</h3>
-                  </div>
-                  {isCurrent ? (
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${plan.code === 'plus' ? 'bg-white/15 text-white' : 'bg-gray-100 text-gray-700'}`}>
-                      Current
-                    </span>
-                  ) : null}
-                </div>
-
-                <p className={`mt-4 text-3xl font-semibold ${plan.code === 'plus' ? 'text-white' : 'text-gray-900'}`}>
-                  {plan.price_display}
-                  {plan.price_paise > 0 ? <span className={`ml-1 text-sm font-medium ${plan.code === 'plus' ? 'text-gray-300' : 'text-gray-500'}`}>/ {plan.cycle_days} days</span> : null}
-                </p>
-                <p className={`mt-3 text-sm leading-6 ${plan.code === 'plus' ? 'text-gray-200' : 'text-gray-600'}`}>{plan.description}</p>
-
-                <div className={`mt-4 rounded-2xl border p-3 text-sm ${plan.code === 'plus' ? 'border-white/10 bg-white/5 text-gray-200' : 'border-gray-200 bg-gray-50 text-gray-700'}`}>
-                  <p>Max users: {plan.limits?.max_users || 'Unlimited'}</p>
-                  <p className="mt-1">Max apps: {plan.limits?.max_apps || 'Unlimited'}</p>
-                </div>
-
-                <ul className={`mt-4 space-y-2 text-sm ${plan.code === 'plus' ? 'text-gray-200' : 'text-gray-700'}`}>
-                  {plan.features.map((feature) => (
-                    <li key={feature}>- {feature}</li>
-                  ))}
-                </ul>
-
-                <button
-                  type="button"
-                  disabled={!isPaidPlan || isCurrent || !!busyPlanCode}
-                  onClick={() => startCheckout(plan.code)}
-                  className={`mt-6 w-full rounded-full px-4 py-3 text-sm font-semibold transition ${
-                    !isPaidPlan || isCurrent
-                      ? plan.code === 'plus'
-                        ? 'cursor-not-allowed bg-white/10 text-white/70'
-                        : 'cursor-not-allowed bg-gray-100 text-gray-400'
-                      : plan.code === 'plus'
-                        ? 'bg-white text-gray-900 hover:bg-gray-100'
-                        : 'bg-gray-900 text-white hover:bg-black'
-                  }`}
+              return (
+                <article
+                  key={plan.code}
+                  className={`rounded-3xl border p-5 transition-all ${plan.code === 'plus' ? 'border-gray-900 bg-gray-900 text-white shadow-xl' : 'border-gray-200 bg-white text-gray-900'}`}
                 >
-                  {busyPlanCode === plan.code ? 'Preparing checkout...' : buttonLabel}
-                </button>
-              </article>
-            );
-          })}
-        </div>
-      </section>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${plan.code === 'plus' ? 'text-gray-300' : 'text-gray-500'}`}>{plan.badge}</p>
+                      <h3 className="mt-2 text-2xl font-semibold">{plan.name}</h3>
+                    </div>
+                    {isCurrent ? (
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${plan.code === 'plus' ? 'bg-white/15 text-white' : 'bg-gray-100 text-gray-700'}`}>
+                        Current
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <p className={`mt-4 text-3xl font-semibold ${plan.code === 'plus' ? 'text-white' : 'text-gray-900'}`}>
+                    {plan.price_display}
+                    {plan.price_paise > 0 ? <span className={`ml-1 text-sm font-medium ${plan.code === 'plus' ? 'text-gray-300' : 'text-gray-500'}`}>/ {plan.cycle_days} days</span> : null}
+                  </p>
+                  <p className={`mt-3 text-sm leading-6 ${plan.code === 'plus' ? 'text-gray-200' : 'text-gray-600'}`}>{plan.description}</p>
+
+                  <div className={`mt-4 rounded-2xl border p-3 text-sm ${plan.code === 'plus' ? 'border-white/10 bg-white/5 text-gray-200' : 'border-gray-200 bg-gray-50 text-gray-700'}`}>
+                    <p>Max users: {plan.limits?.max_users || 'Unlimited'}</p>
+                    <p className="mt-1">Max apps: {plan.limits?.max_apps || 'Unlimited'}</p>
+                  </div>
+
+                  <ul className={`mt-4 space-y-2 text-sm ${plan.code === 'plus' ? 'text-gray-200' : 'text-gray-700'}`}>
+                    {plan.features.map((feature) => (
+                      <li key={feature}>- {feature}</li>
+                    ))}
+                  </ul>
+
+                  <button
+                    type="button"
+                    disabled={!isPaidPlan || isCurrent || !!busyPlanCode}
+                    onClick={() => startCheckout(plan.code)}
+                    className={`mt-6 w-full rounded-full px-4 py-3 text-sm font-semibold transition ${
+                      !isPaidPlan || isCurrent
+                        ? plan.code === 'plus'
+                          ? 'cursor-not-allowed bg-white/10 text-white/70'
+                          : 'cursor-not-allowed bg-gray-100 text-gray-400'
+                        : plan.code === 'plus'
+                          ? 'bg-white text-gray-900 hover:bg-gray-100'
+                          : 'bg-gray-900 text-white hover:bg-black'
+                    }`}
+                  >
+                    {busyPlanCode === plan.code ? 'Preparing checkout...' : buttonLabel}
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : (
+        <section className="surface p-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">Manual enterprise access</p>
+          <h2 className="mt-1 text-2xl font-semibold text-gray-900">Access is managed outside self-serve billing</h2>
+          <p className="mt-2 max-w-3xl text-sm text-gray-600">
+            This organization was approved by a super admin and moved to the legacy admin-provisioned enterprise track.
+            Because this is not a subscription-backed plan, the self-serve plan cards are intentionally hidden here.
+          </p>
+        </section>
+      )}
 
       <section className="surface p-6">
         <div className="flex items-center justify-between gap-3">
@@ -523,7 +573,9 @@ export default function UpgradeAccess() {
           </div>
         ) : (
           <div className="mt-5 rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
-            No payments yet. Choose a paid plan to activate subscription billing for this organization.
+            {isAdminProvisionedPlan
+              ? 'No subscription payments are recorded for this organization because its enterprise access was provisioned manually by a super admin.'
+              : 'No payments yet. Choose a paid plan to activate subscription billing for this organization.'}
           </div>
         )}
       </section>
@@ -552,60 +604,72 @@ export default function UpgradeAccess() {
             </div>
           ) : null}
 
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            <label className="text-sm">
-              <span className="mb-1.5 block font-medium text-gray-700">Organization name</span>
-              <input className="input-field" value={upgradeRequestForm.company_name} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, company_name: e.target.value }))} />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1.5 block font-medium text-gray-700">Website</span>
-              <input className="input-field" value={upgradeRequestForm.company_website} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, company_website: e.target.value }))} placeholder="https://example.com" />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1.5 block font-medium text-gray-700">Company size</span>
-              <input className="input-field" value={upgradeRequestForm.company_size} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, company_size: e.target.value }))} placeholder="1-10, 11-50, 51-200..." />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1.5 block font-medium text-gray-700">Expected monthly users</span>
-              <input className="input-field" type="number" min="0" value={upgradeRequestForm.expected_monthly_users} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, expected_monthly_users: e.target.value }))} />
-            </label>
-            <label className="text-sm md:col-span-2">
-              <span className="mb-1.5 block font-medium text-gray-700">Primary use case</span>
-              <textarea className="input-field min-h-[108px]" value={upgradeRequestForm.primary_use_case} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, primary_use_case: e.target.value }))} />
-            </label>
-            <label className="text-sm md:col-span-2">
-              <span className="mb-1.5 block font-medium text-gray-700">Requested features</span>
-              <textarea className="input-field min-h-[108px]" value={upgradeRequestForm.requested_features} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, requested_features: e.target.value }))} />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1.5 block font-medium text-gray-700">Billing contact name</span>
-              <input className="input-field" value={upgradeRequestForm.billing_contact_name} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, billing_contact_name: e.target.value }))} />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1.5 block font-medium text-gray-700">Billing contact email</span>
-              <input className="input-field" type="email" value={upgradeRequestForm.billing_contact_email} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, billing_contact_email: e.target.value }))} />
-            </label>
-            <label className="text-sm md:col-span-2">
-              <span className="mb-1.5 block font-medium text-gray-700">Notes</span>
-              <textarea className="input-field min-h-[120px]" value={upgradeRequestForm.notes} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, notes: e.target.value }))} />
-            </label>
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowUpgradeRequestForm((current) => !current)}
+            className="mt-5 text-sm font-semibold text-slate-700 underline underline-offset-4 transition hover:text-slate-900"
+          >
+            {showUpgradeRequestForm ? 'Hide request form' : upgradeRequest?.payload ? 'Open request form' : 'Fill the request form'}
+          </button>
 
-          <label className="mt-5 flex items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={upgradeRequestForm.agree_to_terms}
-              onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, agree_to_terms: e.target.checked }))}
-              className="mt-0.5 h-4 w-4 rounded border-gray-300"
-            />
-            <span>I confirm that these details are accurate and that the organization is requesting a verified enterprise review.</span>
-          </label>
+          {showUpgradeRequestForm ? (
+            <>
+              <div className="mt-6 grid gap-4 md:grid-cols-2">
+                <label className="text-sm">
+                  <span className="mb-1.5 block font-medium text-gray-700">Organization name</span>
+                  <input className="input-field" value={upgradeRequestForm.company_name} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, company_name: e.target.value }))} />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1.5 block font-medium text-gray-700">Website</span>
+                  <input className="input-field" value={upgradeRequestForm.company_website} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, company_website: e.target.value }))} placeholder="https://example.com" />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1.5 block font-medium text-gray-700">Company size</span>
+                  <input className="input-field" value={upgradeRequestForm.company_size} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, company_size: e.target.value }))} placeholder="1-10, 11-50, 51-200..." />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1.5 block font-medium text-gray-700">Expected monthly users</span>
+                  <input className="input-field" type="number" min="0" value={upgradeRequestForm.expected_monthly_users} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, expected_monthly_users: e.target.value }))} />
+                </label>
+                <label className="text-sm md:col-span-2">
+                  <span className="mb-1.5 block font-medium text-gray-700">Primary use case</span>
+                  <textarea className="input-field min-h-[108px]" value={upgradeRequestForm.primary_use_case} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, primary_use_case: e.target.value }))} />
+                </label>
+                <label className="text-sm md:col-span-2">
+                  <span className="mb-1.5 block font-medium text-gray-700">Requested features</span>
+                  <textarea className="input-field min-h-[108px]" value={upgradeRequestForm.requested_features} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, requested_features: e.target.value }))} />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1.5 block font-medium text-gray-700">Billing contact name</span>
+                  <input className="input-field" value={upgradeRequestForm.billing_contact_name} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, billing_contact_name: e.target.value }))} />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1.5 block font-medium text-gray-700">Billing contact email</span>
+                  <input className="input-field" type="email" value={upgradeRequestForm.billing_contact_email} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, billing_contact_email: e.target.value }))} />
+                </label>
+                <label className="text-sm md:col-span-2">
+                  <span className="mb-1.5 block font-medium text-gray-700">Notes</span>
+                  <textarea className="input-field min-h-[120px]" value={upgradeRequestForm.notes} onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, notes: e.target.value }))} />
+                </label>
+              </div>
 
-          <div className="mt-5 flex justify-end">
-            <button type="button" onClick={submitUpgradeRequest} disabled={upgradeRequestSaving} className="btn-primary">
-              {upgradeRequestSaving ? 'Submitting...' : 'Submit upgrade request'}
-            </button>
-          </div>
+              <label className="mt-5 flex items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={upgradeRequestForm.agree_to_terms}
+                  onChange={(e) => setUpgradeRequestForm((current) => ({ ...current, agree_to_terms: e.target.checked }))}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                />
+                <span>I confirm that these details are accurate and that the organization is requesting a verified enterprise review.</span>
+              </label>
+
+              <div className="mt-5 flex justify-end">
+                <button type="button" onClick={submitUpgradeRequest} disabled={upgradeRequestSaving} className="btn-primary">
+                  {upgradeRequestSaving ? 'Submitting...' : 'Submit upgrade request'}
+                </button>
+              </div>
+            </>
+          ) : null}
         </section>
       ) : null}
 

@@ -6,8 +6,8 @@ import { PlusIcon, SearchIcon, XIcon } from './Icons';
 import ConfirmDialog from './ConfirmDialog';
 import { getDisplayName } from '../utils/profile';
 
-export default function GroupMembershipTable({ groupId, allowManageMembers = true, blockedMessage = '' }) {
-  const { orgId } = useAuth();
+export default function GroupMembershipTable({ groupId, allowManageMembers = true, blockedMessage = '', protectAdminMemberships = false }) {
+  const { orgId, claims } = useAuth();
   const [members, setMembers] = useState([]);
   const [cursor, setCursor] = useState(null);
   const [hasMore, setHasMore] = useState(false);
@@ -70,8 +70,13 @@ export default function GroupMembershipTable({ groupId, allowManageMembers = tru
     try {
       await api.delete(`/api/v1/organizations/${orgId}/groups/${groupId}/members/${userId}`);
       fetchMembers();
-    } catch {}
+      setError('');
+    } catch (err) {
+      setError(err.response?.data?.detail?.error_description || 'Unable to remove that user from this group.');
+    }
   };
+
+  const currentUserId = claims?.sub || null;
 
   return (
     <div>
@@ -181,7 +186,14 @@ export default function GroupMembershipTable({ groupId, allowManageMembers = tru
                 </td>
                 <td className="py-3 px-4 text-right">
                   {allowManageMembers ? (
-                    <button onClick={() => setPendingRemoval(m)} className="text-sm font-medium text-red-700 hover:text-red-800">Remove</button>
+                    <button
+                      onClick={() => setPendingRemoval(m)}
+                      className={`text-sm font-medium ${protectAdminMemberships && m.id === currentUserId ? 'cursor-not-allowed text-slate-400' : 'text-red-700 hover:text-red-800'}`}
+                      disabled={protectAdminMemberships && m.id === currentUserId}
+                      title={protectAdminMemberships && m.id === currentUserId ? 'You cannot remove yourself from the bootstrap admins group.' : 'Remove member'}
+                    >
+                      Remove
+                    </button>
                   ) : null}
                 </td>
               </tr>

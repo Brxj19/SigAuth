@@ -1,5 +1,6 @@
 """Organization service: CRUD, suspend, activate, and onboarding."""
 
+from copy import deepcopy
 from datetime import datetime, timezone, timedelta
 import re
 from urllib.parse import quote, urlparse
@@ -25,6 +26,9 @@ DEFAULT_SELF_SERVE_LIMITS = {
 }
 
 SELF_SERVE_ALLOWED_SCOPES = {"openid", "profile", "email"}
+PAID_PLAN_CODES = {"go", "plus", "pro"}
+LEGACY_ENTERPRISE_PLAN_CODE = "enterprise_manual"
+FREE_PLAN_CODE = "free"
 
 # System roles to seed for every new organization
 SYSTEM_ROLES = [
@@ -185,6 +189,11 @@ async def create_organization_with_admin(
 
     db.add(GroupMember(group_id=admin_group.id, user_id=admin_user.id))
     db.add(GroupRole(group_id=admin_group.id, role_id=admin_role.id))
+    org.settings = {
+        **(org.settings or {}),
+        "bootstrap_admin_user_id": str(admin_user.id),
+        "bootstrap_admin_group_id": str(admin_group.id),
+    }
     await db.flush()
 
     return org, admin_user, password_to_store
@@ -254,6 +263,12 @@ def build_self_serve_settings(existing: Optional[dict[str, Any]] = None) -> dict
     payload: dict[str, Any] = {}
     if isinstance(existing, dict):
         payload.update(existing)
+    payload.pop("upgrade_request", None)
+    billing = payload.get("billing") if isinstance(payload.get("billing"), dict) else {}
+    billing = deepcopy(billing)
+    billing["current_plan_code"] = FREE_PLAN_CODE
+    billing["subscription"] = None
+    billing.pop("pending_checkout", None)
     payload.update(
         {
             "signup_origin": "self_serve",
@@ -263,6 +278,7 @@ def build_self_serve_settings(existing: Optional[dict[str, Any]] = None) -> dict
             "limits": payload.get("limits") or DEFAULT_SELF_SERVE_LIMITS.copy(),
         }
     )
+    payload["billing"] = billing
     return payload
 
 
@@ -271,12 +287,33 @@ def build_verified_enterprise_settings(existing: Optional[dict[str, Any]] = None
     payload: dict[str, Any] = {}
     if isinstance(existing, dict):
         payload.update(existing)
+    billing = payload.get("billing") if isinstance(payload.get("billing"), dict) else {}
+    billing = deepcopy(billing)
+    subscription = billing.get("subscription") if isinstance(billing.get("subscription"), dict) else None
+    normalized_current_plan = str(billing.get("current_plan_code") or "").strip().lower()
+    normalized_subscription_plan = str((subscription or {}).get("plan_code") or "").strip().lower()
+    has_paid_plan = normalized_current_plan in PAID_PLAN_CODES or normalized_subscription_plan in PAID_PLAN_CODES
+
+    if not has_paid_plan:
+        billing["current_plan_code"] = LEGACY_ENTERPRISE_PLAN_CODE
+        billing["subscription"] = {
+            "plan_code": LEGACY_ENTERPRISE_PLAN_CODE,
+            "plan_name": "Admin Provisioned",
+            "status": "active",
+            "managed_manually": True,
+            "cancel_at_period_end": False,
+            "current_period_start": None,
+            "current_period_end": None,
+        }
+        billing.pop("pending_checkout", None)
+
     payload.update(
         {
             "access_tier": "verified_enterprise",
             "verification_status": "approved",
         }
     )
+    payload["billing"] = billing
     return payload
 
 

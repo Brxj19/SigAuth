@@ -33,6 +33,8 @@ const ACTION_MESSAGES = {
   resume: 'resumed successfully',
   'verify-enterprise': 'moved to verified enterprise successfully',
   'set-limited': 'moved to limited tier successfully',
+  'approve-upgrade-request': 'upgrade request approved successfully',
+  'reject-upgrade-request': 'upgrade request rejected successfully',
   approve: 'approved successfully',
   reject: 'rejected successfully',
   read: 'updated successfully',

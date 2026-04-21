@@ -79,6 +79,10 @@ class UpgradeRequestCreate(BaseModel):
     agree_to_terms: bool = False
 
 
+class OrganizationSetLimitedRequest(BaseModel):
+    reason: str = Field(..., min_length=8, max_length=600)
+
+
 class PlanStatusResponse(BaseModel):
     org_id: UUID
     org_name: str

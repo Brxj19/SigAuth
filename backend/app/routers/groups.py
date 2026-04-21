@@ -4,11 +4,12 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, require_permission
-from app.models.group import GroupMember
+from app.models.group import GroupMember, GroupRole
+from app.models.role import Role
 from app.models.user import User
 from app.schemas.group import (
     GroupCreate, GroupUpdate, GroupResponse, GroupListResponse,
@@ -20,6 +21,7 @@ from app.services.group_service import (
     get_group_members, add_members, remove_member, get_application_group_membership_conflicts,
     assign_roles, remove_role, get_group_roles,
 )
+from app.services.organization_service import get_organization
 from app.services.role_service import get_role
 from app.services.audit_service import write_audit_event
 from app.services.notification_service import send_admin_activity_notification, send_notification_event
@@ -64,6 +66,121 @@ async def _get_org_group_or_404(db: AsyncSession, org_id: UUID, group_id: UUID):
     if not group or group.org_id != org_id:
         raise HTTPException(404, detail={"error": "not_found", "error_description": "Group not found"})
     return group
+
+
+def _is_bootstrap_admin_group(org_settings: dict | None, group) -> bool:
+    if not isinstance(org_settings, dict):
+        return str(group.name or "").strip().lower() == "admins"
+    configured_group_id = str(org_settings.get("bootstrap_admin_group_id") or "").strip()
+    if configured_group_id and configured_group_id == str(group.id):
+        return True
+    return str(group.name or "").strip().lower() == "admins"
+
+
+async def _resolve_bootstrap_admin_user_id(db: AsyncSession, org_id: UUID, org_settings: dict | None) -> UUID | None:
+    if isinstance(org_settings, dict):
+        configured_user_id = str(org_settings.get("bootstrap_admin_user_id") or "").strip()
+        if configured_user_id:
+            try:
+                return UUID(configured_user_id)
+            except ValueError:
+                pass
+
+    result = await db.execute(
+        select(User.id)
+        .where(User.org_id == org_id, User.deleted_at.is_(None))
+        .order_by(User.created_at.asc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _ensure_bootstrap_admin_membership_removable(
+    db: AsyncSession,
+    *,
+    org_id: UUID,
+    group,
+    target_user_id: UUID,
+    current_user: dict,
+) -> None:
+    org = await get_organization(db, org_id)
+    org_settings = org.settings if org else {}
+    if not _is_bootstrap_admin_group(org_settings, group):
+        return
+
+    current_user_id = current_user.get("user_id")
+    if current_user_id and target_user_id == current_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "admin_group_self_removal_forbidden",
+                "error_description": "Organization admins cannot remove themselves from the bootstrap admins group.",
+            },
+        )
+
+
+async def _count_user_role_source_groups(
+    db: AsyncSession,
+    *,
+    org_id: UUID,
+    user_id: UUID,
+    role_name: str,
+) -> int:
+    result = await db.execute(
+        select(func.count(func.distinct(GroupMember.group_id)))
+        .select_from(GroupMember)
+        .join(GroupRole, GroupRole.group_id == GroupMember.group_id)
+        .join(Role, Role.id == GroupRole.role_id)
+        .where(
+            GroupMember.user_id == user_id,
+            Role.org_id == org_id,
+            Role.name == role_name,
+        )
+    )
+    return int(result.scalar() or 0)
+
+
+async def _ensure_manager_membership_self_removal_safe(
+    db: AsyncSession,
+    *,
+    org_id: UUID,
+    group,
+    target_user_id: UUID,
+    current_user: dict,
+) -> None:
+    current_user_id = current_user.get("user_id")
+    if not current_user_id or target_user_id != current_user_id:
+        return
+
+    group_roles = await get_group_roles(db, group.id)
+    role_names = {role.name for role in group_roles}
+    if "group:manager" not in role_names:
+        return
+
+    role_source_count = await _count_user_role_source_groups(
+        db,
+        org_id=org_id,
+        user_id=target_user_id,
+        role_name="group:manager",
+    )
+    if role_source_count <= 1:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "manager_group_self_removal_forbidden",
+                "error_description": "You cannot remove yourself from the last group that grants your group manager access.",
+            },
+        )
+
+    bootstrap_admin_user_id = await _resolve_bootstrap_admin_user_id(db, org_id, org_settings)
+    if bootstrap_admin_user_id and target_user_id == bootstrap_admin_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "bootstrap_admin_removal_forbidden",
+                "error_description": "The first organization admin cannot be removed from the admins group.",
+            },
+        )
 
 
 @router.get("")
@@ -253,6 +370,20 @@ async def remove_member_endpoint(
     """Remove a user from a group."""
     group = await _get_org_group_or_404(db, org_id, group_id)
     await _ensure_group_manageable(db, current_user, group.id)
+    await _ensure_bootstrap_admin_membership_removable(
+        db,
+        org_id=org_id,
+        group=group,
+        target_user_id=user_id,
+        current_user=current_user,
+    )
+    await _ensure_manager_membership_self_removal_safe(
+        db,
+        org_id=org_id,
+        group=group,
+        target_user_id=user_id,
+        current_user=current_user,
+    )
     success = await remove_member(db, group_id, user_id)
     if not success:
         raise HTTPException(404, detail={"error": "not_found", "error_description": "Member not found in group"})

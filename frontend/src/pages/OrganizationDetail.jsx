@@ -32,6 +32,7 @@ export default function OrganizationDetail() {
   const [success, setSuccess] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [confirmState, setConfirmState] = useState(null);
+  const [limitedTierReason, setLimitedTierReason] = useState('');
   const [form, setForm] = useState({
     display_name: '',
     ...DEFAULT_SETTINGS,
@@ -40,6 +41,7 @@ export default function OrganizationDetail() {
   const accessTier = org?.settings?.access_tier || 'verified_enterprise';
   const verificationStatus = org?.settings?.verification_status || (accessTier === 'limited' ? 'pending' : 'approved');
   const upgradeRequestStatus = org?.settings?.upgrade_request?.status || null;
+  const isSelfServeOrg = org?.settings?.signup_origin === 'self_serve';
   const isPaidSelfServeOrg = org?.settings?.signup_origin === 'self_serve'
     && ['go', 'plus', 'pro'].includes(String(org?.settings?.billing?.current_plan_code || '').toLowerCase());
 
@@ -131,8 +133,11 @@ export default function OrganizationDetail() {
   const handleSetLimited = async () => {
     setError('');
     try {
-      const res = await api.post(`/api/v1/admin/organizations/${id}/set-limited`);
+      const res = await api.post(`/api/v1/admin/organizations/${id}/set-limited`, {
+        reason: limitedTierReason,
+      });
       setOrg(res.data);
+      setLimitedTierReason('');
       setSuccess('Organization moved to limited tier.');
     } catch (err) {
       setError(err.response?.data?.detail?.error_description || 'Unable to move this organization to the limited tier.');
@@ -143,6 +148,12 @@ export default function OrganizationDetail() {
     const res = await api.post(`/api/v1/admin/organizations/${id}/approve-upgrade-request`);
     setOrg(res.data);
     setSuccess('Upgrade request approved.');
+  };
+
+  const handleRejectUpgradeRequest = async () => {
+    const res = await api.post(`/api/v1/admin/organizations/${id}/reject-upgrade-request`);
+    setOrg(res.data);
+    setSuccess('Upgrade request rejected.');
   };
 
   const handleDeleteOrganization = async () => {
@@ -167,19 +178,24 @@ export default function OrganizationDetail() {
           <div className="flex gap-3">
             {org.status === 'active' && <button onClick={() => setConfirmState('suspend')} className="btn-danger">Suspend</button>}
             {org.status === 'suspended' && <button onClick={handleActivate} className="btn-primary">Activate</button>}
-            {accessTier === 'limited' && org.status === 'active' && (
+            {accessTier === 'limited' && org.status === 'active' && !isSelfServeOrg && (
               <button onClick={handleVerifyEnterprise} className="btn-primary">
                 Verify Enterprise
               </button>
             )}
-            {upgradeRequestStatus === 'submitted' && org.status === 'active' && (
-              <button onClick={handleApproveUpgradeRequest} className="btn-primary">
-                Approve Upgrade Request
-              </button>
+            {upgradeRequestStatus === 'submitted' && accessTier === 'limited' && org.status === 'active' && (
+              <>
+                <button onClick={handleApproveUpgradeRequest} className="btn-primary">
+                  Approve Upgrade Request
+                </button>
+                <button onClick={() => setConfirmState('reject-request')} className="btn-secondary">
+                  Reject Upgrade Request
+                </button>
+              </>
             )}
             {accessTier === 'verified_enterprise' && org.status === 'active' && (
               <button
-                onClick={handleSetLimited}
+                onClick={() => setConfirmState('set-limited')}
                 className={`btn-secondary ${isPaidSelfServeOrg ? 'cursor-not-allowed opacity-55' : ''}`}
                 disabled={isPaidSelfServeOrg}
                 title={isPaidSelfServeOrg ? 'Paid self-serve organizations cannot be moved to the limited tier.' : 'Set limited'}
@@ -343,18 +359,61 @@ export default function OrganizationDetail() {
 
       <ConfirmDialog
         open={!!confirmState}
-        title={confirmState === 'suspend' ? 'Suspend organization?' : 'Delete organization?'}
+        title={
+          confirmState === 'suspend'
+            ? 'Suspend organization?'
+            : confirmState === 'set-limited'
+              ? 'Move organization to limited tier?'
+            : confirmState === 'reject-request'
+              ? 'Reject upgrade request?'
+              : 'Delete organization?'
+        }
         description={
           confirmState === 'suspend'
             ? 'This tenant will be suspended and normal sign-in should stop until reactivated.'
-            : 'This is a soft delete. The tenant will disappear from normal operations.'
+            : confirmState === 'set-limited'
+              ? 'This will remove the organization from verified enterprise access. The organization admins will receive an email and in-app notification with the reason you provide.'
+            : confirmState === 'reject-request'
+              ? 'This closes the current request. If the organization still wants enterprise review later, it will need to submit a fresh request.'
+              : 'This is a soft delete. The tenant will disappear from normal operations.'
         }
-        confirmLabel={confirmState === 'suspend' ? 'Suspend organization' : 'Delete organization'}
-        onClose={() => setConfirmState(null)}
+        confirmLabel={
+          confirmState === 'suspend'
+            ? 'Suspend organization'
+            : confirmState === 'set-limited'
+              ? 'Move to limited tier'
+            : confirmState === 'reject-request'
+              ? 'Reject request'
+              : 'Delete organization'
+        }
+        children={
+          confirmState === 'set-limited' ? (
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-gray-700">Reason for moving to limited tier</label>
+              <textarea
+                value={limitedTierReason}
+                onChange={(e) => setLimitedTierReason(e.target.value)}
+                className="input-field min-h-[110px]"
+                placeholder="Explain why the organization is being moved back to the limited tier."
+              />
+              <p className="mt-2 text-xs text-gray-500">This explanation will be sent to the organization admins by email and as an in-app notification.</p>
+            </div>
+          ) : null
+        }
+        onClose={() => {
+          if (confirmState === 'set-limited') setLimitedTierReason('');
+          setConfirmState(null);
+        }}
         onConfirm={async () => {
           const action = confirmState;
+          if (action === 'set-limited' && limitedTierReason.trim().length < 8) {
+            setError('Please provide a short reason before moving the organization to the limited tier.');
+            return;
+          }
           setConfirmState(null);
           if (action === 'suspend') await handleSuspend();
+          if (action === 'set-limited') await handleSetLimited();
+          if (action === 'reject-request') await handleRejectUpgradeRequest();
           if (action === 'delete') await handleDeleteOrganization();
         }}
       />

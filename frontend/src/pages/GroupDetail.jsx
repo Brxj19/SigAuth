@@ -225,6 +225,7 @@ export default function GroupDetail() {
             groupId={id}
             allowManageMembers={canManageMembers && !blockProtectedGroupActions}
             blockedMessage={blockProtectedGroupActions ? 'Organization admin access groups can only be managed by organization admins.' : ''}
+            protectAdminMemberships={groupIsProtected}
           />
         </div>
       )}

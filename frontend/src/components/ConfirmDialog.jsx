@@ -9,6 +9,7 @@ export default function ConfirmDialog({
   cancelLabel = 'Cancel',
   tone = 'danger',
   busy = false,
+  children,
   onConfirm,
   onClose,
 }) {
@@ -16,6 +17,7 @@ export default function ConfirmDialog({
 
   return (
     <Modal open={open} title={title} description={description} onClose={busy ? undefined : onClose}>
+      {children ? <div className="mb-4">{children}</div> : null}
       <div className="flex flex-wrap justify-end gap-3">
         <button type="button" onClick={onClose} className="btn-secondary" disabled={busy}>
           {cancelLabel}
