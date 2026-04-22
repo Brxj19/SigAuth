@@ -72,7 +72,7 @@ export async function logoutFromIdp() {
   if (!logoutUrl) {
     throw new Error('Unable to resolve SigAuth logout URL');
   }
-  window.location.assign(logoutUrl);
+  return logoutUrl;
 }
 
 export const loginWithEmail = (data) => api.post('/auth/login', data);

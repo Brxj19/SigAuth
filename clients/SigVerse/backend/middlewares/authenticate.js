@@ -1,11 +1,29 @@
-const jwt = require('jsonwebtoken');
 const { sendError } = require('../utils/response');
-const UserRepository = require('../repositories/UserRepository');
-const { deriveSigVerseRole, verifyIdpToken } = require('../utils/idpAuth');
-const { readSessionFromRequest } = require('../../../shared/sessionAuth');
+const { verifyIdpToken } = require('../utils/idpAuth');
+const { resolveSigVerseSessionUserFromClaims } = require('../utils/sessionUser');
+const {
+  buildClearSessionCookie,
+  buildIdpSessionState,
+  buildSessionCookie,
+  createSessionToken,
+  fetchUserInfo,
+  maybeRefreshIdpSession,
+  readSessionFromRequest,
+} = require('../../../shared/sessionAuth');
 
+const IDP_ISSUER_URL = process.env.IDP_ISSUER_URL || 'http://localhost:8000';
+const IDP_CLIENT_ID = process.env.IDP_CLIENT_ID || '';
 const SESSION_COOKIE_NAME = process.env.APP_SESSION_COOKIE_NAME || 'sigverse_session';
 const SESSION_SECRET = process.env.APP_SESSION_SECRET || 'sigverse-dev-session-secret';
+const SESSION_TTL_SECONDS = Number(process.env.APP_SESSION_TTL_SECONDS || 60 * 60 * 8);
+
+function sessionCookieOptions() {
+  return {
+    cookieName: SESSION_COOKIE_NAME,
+    maxAge: SESSION_TTL_SECONDS,
+    secure: process.env.APP_SESSION_COOKIE_SECURE === 'true',
+  };
+}
 
 module.exports = async (req, res, next) => {
   const cookieSession = readSessionFromRequest(req, {
@@ -13,8 +31,37 @@ module.exports = async (req, res, next) => {
     cookieName: SESSION_COOKIE_NAME,
   });
   if (cookieSession?.user) {
-    req.user = cookieSession.user;
-    return next();
+    try {
+      const refreshed = await maybeRefreshIdpSession({
+        session: cookieSession,
+        issuerUrl: IDP_ISSUER_URL,
+        clientId: IDP_CLIENT_ID,
+      });
+
+      let sessionUser = refreshed.session.user;
+      if (refreshed.refreshed) {
+        const claims = await fetchUserInfo({
+          issuerUrl: IDP_ISSUER_URL,
+          accessToken: refreshed.session.idp.accessToken,
+        });
+        sessionUser = await resolveSigVerseSessionUserFromClaims(claims);
+        const nextSessionToken = createSessionToken(
+          {
+            user: sessionUser,
+            idp: buildIdpSessionState(refreshed.tokenSet, refreshed.session.idp),
+          },
+          SESSION_SECRET,
+          SESSION_TTL_SECONDS
+        );
+        res.setHeader('Set-Cookie', buildSessionCookie(nextSessionToken, sessionCookieOptions()));
+      }
+
+      req.user = sessionUser;
+      return next();
+    } catch (error) {
+      res.setHeader('Set-Cookie', buildClearSessionCookie(sessionCookieOptions()));
+      return sendError(res, 401, 'Session expired. Please sign in again.');
+    }
   }
 
   const authHeader = req.headers['authorization'];
@@ -23,51 +70,9 @@ module.exports = async (req, res, next) => {
   }
   const token = authHeader.split(' ')[1];
   try {
-    let decoded;
-    let localUser = null;
-
-    try {
-      decoded = verifyIdpToken(token);
-      const role = deriveSigVerseRole(decoded);
-      const email = String(decoded.email || '').trim().toLowerCase();
-      const name = decoded.name || email || 'SigVerse User';
-
-      if (!email) {
-        return sendError(res, 401, 'IDP token does not include an email');
-      }
-      if (!role) {
-        return sendError(res, 403, 'No recognized SigVerse application role was issued for this account.');
-      }
-
-      localUser = await UserRepository.findByEmail(email);
-      if (!localUser) {
-        localUser = await UserRepository.create({
-          name,
-          email,
-          role
-        });
-      } else if (localUser.role !== role || localUser.name !== name) {
-        localUser = await UserRepository.patch(localUser.id, { role, name });
-      }
-
-      req.user = {
-        sub: localUser.id,
-        external_sub: decoded.sub,
-        email,
-        role: localUser.role,
-        name: localUser.name,
-        app_roles: decoded.app_roles || [],
-        groups: decoded.groups || [],
-        app_groups: decoded.app_groups || []
-      };
-      return next();
-    } catch (idpError) {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = decoded; // { sub, email, role }
-      return next();
-    }
-
-    next();
+    const decoded = verifyIdpToken(token);
+    req.user = await resolveSigVerseSessionUserFromClaims(decoded);
+    return next();
   } catch (err) {
     return sendError(res, 401, 'Invalid or expired token');
   }

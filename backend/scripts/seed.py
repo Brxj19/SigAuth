@@ -213,7 +213,7 @@ async def seed():
                 allowed_scopes=["openid", "profile", "email"],
                 id_token_lifetime=3600,
                 access_token_lifetime=3600,
-                refresh_token_enabled=False,
+                refresh_token_enabled=True,
             )
 
             db.add(hr_portal)

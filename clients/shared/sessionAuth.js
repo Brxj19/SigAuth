@@ -16,6 +16,28 @@ function base64urlDecode(value) {
   return Buffer.from(normalized, 'base64').toString('utf8');
 }
 
+function decodeJwtClaims(token) {
+  if (!token) return null;
+  const parts = String(token).split('.');
+  if (parts.length < 2) return null;
+  try {
+    return JSON.parse(base64urlDecode(parts[1]));
+  } catch {
+    return null;
+  }
+}
+
+function getJwtExpiry(token) {
+  const claims = decodeJwtClaims(token);
+  return typeof claims?.exp === 'number' ? claims.exp : null;
+}
+
+function isJwtExpiringSoon(token, skewSeconds = 60) {
+  const exp = getJwtExpiry(token);
+  if (!exp) return true;
+  return exp <= Math.floor(Date.now() / 1000) + skewSeconds;
+}
+
 function signPayload(encodedPayload, secret) {
   return crypto
     .createHmac('sha256', secret)
@@ -149,27 +171,100 @@ async function fetchUserInfo({ issuerUrl, accessToken }) {
   return data;
 }
 
+async function refreshAuthorizationTokens({
+  issuerUrl,
+  clientId,
+  refreshToken,
+}) {
+  const formData = new URLSearchParams();
+  formData.set('grant_type', 'refresh_token');
+  formData.set('refresh_token', refreshToken);
+  formData.set('client_id', clientId);
+
+  const response = await fetch(`${issuerUrl}/api/v1/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: formData.toString(),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error_description || 'Token refresh failed');
+  }
+  return data;
+}
+
+function buildIdpSessionState(tokenSet = {}, existingState = {}) {
+  const accessToken = tokenSet.access_token || existingState.accessToken || tokenSet.id_token || existingState.idTokenHint || null;
+  return {
+    idTokenHint: tokenSet.id_token || existingState.idTokenHint || null,
+    accessToken,
+    accessTokenExp: getJwtExpiry(accessToken),
+    refreshToken: tokenSet.refresh_token || existingState.refreshToken || null,
+  };
+}
+
+async function maybeRefreshIdpSession({
+  session,
+  issuerUrl,
+  clientId,
+  skewSeconds = 60,
+}) {
+  if (!session?.idp?.refreshToken) {
+    return { refreshed: false, session, tokenSet: null };
+  }
+
+  if (session.idp.accessToken && !isJwtExpiringSoon(session.idp.accessToken, skewSeconds)) {
+    return { refreshed: false, session, tokenSet: null };
+  }
+
+  const tokenSet = await refreshAuthorizationTokens({
+    issuerUrl,
+    clientId,
+    refreshToken: session.idp.refreshToken,
+  });
+
+  return {
+    refreshed: true,
+    tokenSet,
+    session: {
+      ...session,
+      idp: buildIdpSessionState(tokenSet, session.idp),
+    },
+  };
+}
+
 function buildIdpLogoutUrl({
   issuerUrl,
   clientId,
   postLogoutRedirectUri,
+  idTokenHint,
 }) {
   const params = new URLSearchParams({
     client_id: clientId,
     post_logout_redirect_uri: postLogoutRedirectUri,
   });
+  if (idTokenHint) {
+    params.set('id_token_hint', idTokenHint);
+  }
   return `${issuerUrl}/api/v1/logout?${params.toString()}`;
 }
 
 module.exports = {
   DEFAULT_SESSION_TTL_SECONDS,
+  buildIdpSessionState,
   buildClearSessionCookie,
   buildIdpLogoutUrl,
   buildSessionCookie,
   createSessionToken,
+  decodeJwtClaims,
   exchangeAuthorizationCode,
   fetchUserInfo,
+  getJwtExpiry,
+  isJwtExpiringSoon,
+  maybeRefreshIdpSession,
   parseCookies,
   readSessionFromRequest,
+  refreshAuthorizationTokens,
   verifySessionToken,
 };

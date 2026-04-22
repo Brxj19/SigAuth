@@ -26,8 +26,18 @@ export default function Navbar() {
 
   const handleGlobalLogout = async () => {
     setShowLogoutConfirm(false);
+    let logoutStarted = false;
+    let logoutUrl = '';
+    try {
+      logoutUrl = await logoutFromIdp();
+      logoutStarted = true;
+    } catch (error) {
+      console.warn('Unable to resolve IdP logout URL before local logout.', error);
+    }
     await clearLocalSession();
-    await logoutFromIdp();
+    if (logoutStarted && logoutUrl) {
+      window.location.assign(logoutUrl);
+    }
   };
 
   if (!user) return null;

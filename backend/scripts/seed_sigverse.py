@@ -138,7 +138,7 @@ async def seed_sigverse():
                     allowed_scopes=["openid", "profile", "email"],
                     id_token_lifetime=3600,
                     access_token_lifetime=3600,
-                    refresh_token_enabled=False,
+                    refresh_token_enabled=True,
                     require_explicit_role_mappings=True,
                     status="active",
                 )

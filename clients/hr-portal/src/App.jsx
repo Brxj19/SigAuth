@@ -145,10 +145,14 @@ export default function App() {
   };
 
   const handleGlobalLogout = async () => {
+    const logoutUrl = await getIdpLogoutUrl().catch(() => null);
     setUser(null);
     await logoutLocalSession().catch(() => {});
-    const logoutUrl = await getIdpLogoutUrl();
-    window.location.href = logoutUrl;
+    if (logoutUrl) {
+      window.location.href = logoutUrl;
+      return;
+    }
+    window.location.href = '/';
   };
 
   const cardStyle = { background: 'rgba(30,41,59,0.7)', border: '1px solid rgba(71,85,105,0.5)', borderRadius: '16px', padding: '32px', backdropFilter: 'blur(10px)' };

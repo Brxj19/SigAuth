@@ -399,10 +399,13 @@ export default function App() {
       setUser(nextUser);
     },
     async logout(globalLogout = false) {
+      let logoutUrl = null;
+      if (globalLogout) {
+        logoutUrl = await getIdpLogoutUrl().catch(() => null);
+      }
       await logoutLocalSession().catch(() => {});
       setUser(null);
-      if (globalLogout) {
-        const logoutUrl = await getIdpLogoutUrl();
+      if (globalLogout && logoutUrl) {
         window.location.assign(logoutUrl);
         return;
       }

@@ -1328,6 +1328,9 @@ async def _handle_refresh_token_grant(db, redis, request, refresh_token_str, cli
 
     # Resolve RBAC
     roles, permissions = await resolve_rbac(db, user.id, user.org_id)
+    if user.is_super_admin:
+        roles = ["super_admin"]
+        permissions = ["*"]
     user_groups = await get_user_groups(db, user.id)
     name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email
     app = await get_application_by_client_id(db, client_id)
@@ -1381,6 +1384,30 @@ async def _handle_refresh_token_grant(db, redis, request, refresh_token_str, cli
         "token_type": "Bearer",
         "expires_in": expires_in,
     }
+
+    if settings.ACCESS_TOKENS_ENABLED:
+        at_str, _, _ = await issue_access_token(
+            db=db,
+            sub=str(user.id),
+            org_id=user.org_id,
+            is_super_admin=user.is_super_admin,
+            client_id=client_id,
+            email=user.email,
+            email_verified=user.email_verified,
+            name=name,
+            given_name=user.first_name or "",
+            family_name=user.last_name or "",
+            scopes=token_record.scopes,
+            roles=roles,
+            permissions=permissions,
+            groups=[group["name"] for group in user_groups],
+            group_ids=[str(group["id"]) for group in user_groups],
+            app_groups=[group["name"] for group in authorized_app_groups],
+            app_group_ids=[str(group["id"]) for group in authorized_app_groups],
+            app_roles=app_roles,
+            lifetime=app.access_token_lifetime if app else None,
+        )
+        result["access_token"] = at_str
 
     await db.commit()
     return JSONResponse(content=result)

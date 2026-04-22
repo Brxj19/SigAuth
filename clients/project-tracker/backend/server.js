@@ -1,12 +1,14 @@
 const http = require('http');
 const { URL } = require('url');
 const {
+  buildIdpSessionState,
   buildClearSessionCookie,
   buildIdpLogoutUrl,
   buildSessionCookie,
   createSessionToken,
   exchangeAuthorizationCode,
   fetchUserInfo,
+  maybeRefreshIdpSession,
   readSessionFromRequest,
 } = require('../../shared/sessionAuth');
 
@@ -61,7 +63,7 @@ function getSessionUser(req) {
     secret: SESSION_SECRET,
     cookieName: SESSION_COOKIE_NAME,
   });
-  return session?.user || null;
+  return session || null;
 }
 
 const server = http.createServer(async (req, res) => {
@@ -113,7 +115,14 @@ const server = http.createServer(async (req, res) => {
         claims: userInfo,
       };
 
-      const sessionToken = createSessionToken({ user }, SESSION_SECRET, SESSION_TTL_SECONDS);
+      const sessionToken = createSessionToken(
+        {
+          user,
+          idp: buildIdpSessionState(tokenSet),
+        },
+        SESSION_SECRET,
+        SESSION_TTL_SECONDS
+      );
       sendJson(
         res,
         200,
@@ -124,12 +133,54 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/auth/session') {
-      const user = getSessionUser(req);
-      if (!user) {
+      const session = getSessionUser(req);
+      if (!session?.user) {
         sendJson(res, 401, { error: 'Unauthorized' });
         return;
       }
-      sendJson(res, 200, { user });
+
+      let nextSession = session;
+      let nextUser = session.user;
+      try {
+        const refreshed = await maybeRefreshIdpSession({
+          session,
+          issuerUrl: IDP_ISSUER_URL,
+          clientId: IDP_CLIENT_ID,
+        });
+        if (refreshed.refreshed) {
+          const claims = await fetchUserInfo({
+            issuerUrl: IDP_ISSUER_URL,
+            accessToken: refreshed.session.idp.accessToken,
+          });
+          nextUser = {
+            name: claims.name || claims.email || 'Project Tracker User',
+            email: claims.email || null,
+            email_verified: !!claims.email_verified,
+            roles: Array.isArray(claims.roles) ? claims.roles : [],
+            permissions: Array.isArray(claims.permissions) ? claims.permissions : [],
+            claims,
+          };
+          nextSession = { ...refreshed.session, user: nextUser };
+          const nextSessionToken = createSessionToken(nextSession, SESSION_SECRET, SESSION_TTL_SECONDS);
+          sendJson(
+            res,
+            200,
+            { user: nextUser },
+            { 'Set-Cookie': buildSessionCookie(nextSessionToken, sessionCookieOptions()) }
+          );
+          return;
+        }
+      } catch (_error) {
+        sendJson(
+          res,
+          401,
+          { error: 'Session expired. Please sign in again.' },
+          { 'Set-Cookie': buildClearSessionCookie(sessionCookieOptions()) }
+        );
+        return;
+      }
+
+      sendJson(res, 200, { user: nextUser });
       return;
     }
 
@@ -144,11 +195,13 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/auth/logout-url') {
+      const session = getSessionUser(req);
       sendJson(res, 200, {
         logoutUrl: buildIdpLogoutUrl({
           issuerUrl: IDP_ISSUER_URL,
           clientId: IDP_CLIENT_ID,
           postLogoutRedirectUri: POST_LOGOUT_REDIRECT_URI,
+          idTokenHint: session?.idp?.idTokenHint || null,
         }),
       });
       return;

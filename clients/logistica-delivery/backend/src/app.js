@@ -4,15 +4,17 @@ const cors = require('cors');
 const express = require('express');
 const morgan = require('morgan');
 
-const { deriveClientRole } = require('./utils/idpAuth');
+const { buildSessionUserFromClaims } = require('./utils/sessionUser');
 const { authenticateRequest } = require('./middlewares/authenticate');
 const {
+  buildIdpSessionState,
   buildClearSessionCookie,
   buildSessionCookie,
   buildIdpLogoutUrl,
   createSessionToken,
   exchangeAuthorizationCode,
   fetchUserInfo,
+  readSessionFromRequest,
 } = require('../../../shared/sessionAuth');
 
 const app = express();
@@ -72,25 +74,16 @@ app.post('/auth/idp/exchange', async (req, res, next) => {
       accessToken,
     });
 
-    const clientRole = deriveClientRole(userInfo);
-    if (!clientRole) {
-      return res.status(403).json({
-        error: 'No recognized application role was issued for this account. Ask your SigAuth administrator to configure an application role mapping.',
-      });
-    }
-    const organization = userInfo.org_name || userInfo.organization || userInfo.tenant || userInfo.org_id || null;
-    const user = {
-      sub: userInfo.sub,
-      name: userInfo.name || userInfo.email || 'User',
-      email: userInfo.email || null,
-      organization,
-      roles: Array.isArray(userInfo.roles) ? userInfo.roles : [],
-      permissions: Array.isArray(userInfo.permissions) ? userInfo.permissions : [],
-      appRoles: Array.isArray(userInfo.app_roles) ? userInfo.app_roles : [],
-      clientRole,
-    };
+    const user = buildSessionUserFromClaims(userInfo);
 
-    const sessionToken = createSessionToken({ user }, SESSION_SECRET, SESSION_TTL_SECONDS);
+    const sessionToken = createSessionToken(
+      {
+        user,
+        idp: buildIdpSessionState(tokenSet),
+      },
+      SESSION_SECRET,
+      SESSION_TTL_SECONDS
+    );
     res.setHeader('Set-Cookie', buildSessionCookie(sessionToken, sessionCookieOptions()));
     res.json({ user });
   } catch (error) {
@@ -108,11 +101,16 @@ app.post('/auth/logout', (req, res) => {
 });
 
 app.get('/auth/logout-url', (req, res) => {
+  const session = readSessionFromRequest(req, {
+    secret: SESSION_SECRET,
+    cookieName: SESSION_COOKIE_NAME,
+  });
   res.json({
     logoutUrl: buildIdpLogoutUrl({
       issuerUrl: IDP_ISSUER_URL,
       clientId: IDP_CLIENT_ID,
       postLogoutRedirectUri: POST_LOGOUT_REDIRECT_URI,
+      idTokenHint: session?.idp?.idTokenHint || null,
     }),
   });
 });
