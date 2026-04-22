@@ -23,6 +23,7 @@ class User(Base):
     email_verified = Column(Boolean, nullable=False, default=False)
     is_super_admin = Column(Boolean, nullable=False, default=False)
     must_change_password = Column(Boolean, nullable=False, default=False)
+    password_reset_required = Column(Boolean, nullable=False, default=False)
     password_changed_at = Column(DateTime(timezone=True), nullable=True)
     password_expires_at = Column(DateTime(timezone=True), nullable=True)
     invited_at = Column(DateTime(timezone=True), nullable=True)

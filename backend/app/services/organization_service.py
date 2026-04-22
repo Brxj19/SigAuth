@@ -215,6 +215,11 @@ def get_org_limits(settings: Optional[dict[str, Any]]) -> dict[str, int]:
     """Return normalized limits object for an organization."""
     if not isinstance(settings, dict):
         return {}
+    access_tier = str(settings.get("access_tier") or "verified_enterprise").strip().lower()
+    billing = settings.get("billing") if isinstance(settings.get("billing"), dict) else {}
+    current_plan_code = str(billing.get("current_plan_code") or "").strip().lower()
+    if access_tier != "limited" and current_plan_code not in PAID_PLAN_CODES:
+        return {}
     raw_limits = settings.get("limits")
     if not isinstance(raw_limits, dict):
         return {}
@@ -311,6 +316,7 @@ def build_verified_enterprise_settings(existing: Optional[dict[str, Any]] = None
         {
             "access_tier": "verified_enterprise",
             "verification_status": "approved",
+            "limits": {},
         }
     )
     payload["billing"] = billing

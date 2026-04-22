@@ -229,6 +229,13 @@ async def authenticate_primary_credentials(
     if user.status == "locked":
         raise AuthError("account_locked", "Account is locked due to too many failed login attempts. Try again later.", 423)
 
+    if user.password_reset_required:
+        raise AuthError(
+            "password_reset_required",
+            "An administrator reset your password. Complete the password reset email flow before signing in again.",
+            403,
+        )
+
     if user.must_change_password:
         raise AuthError(
             "password_setup_required",

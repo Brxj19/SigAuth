@@ -357,23 +357,27 @@ async def send_weekly_summary_email(
 async def list_admin_recipients(
     db: AsyncSession,
     org_id: Optional[UUID],
+    event_key: str = "admin.activity",
     actor_user_id: Optional[UUID] = None,
 ) -> list[User]:
-    """Get platform and org-level admin recipients, excluding actor if provided."""
+    """Get recipients for admin-facing notifications with org and security scoping."""
     recipients: dict[UUID, User] = {}
+    include_super_admins = org_id is None or event_key in SECURITY_ALERT_EVENT_KEYS
+    include_org_admins = org_id is not None
 
-    super_admin_result = await db.execute(
-        select(User).where(
-            User.is_super_admin.is_(True),
-            User.deleted_at.is_(None),
+    if include_super_admins:
+        super_admin_result = await db.execute(
+            select(User).where(
+                User.is_super_admin.is_(True),
+                User.deleted_at.is_(None),
+            )
         )
-    )
-    for user in super_admin_result.scalars().all():
-        if actor_user_id and user.id == actor_user_id:
-            continue
-        recipients[user.id] = user
+        for user in super_admin_result.scalars().all():
+            if actor_user_id and user.id == actor_user_id:
+                continue
+            recipients[user.id] = user
 
-    if org_id:
+    if include_org_admins:
         org_admin_result = await db.execute(
             select(User)
             .distinct()
@@ -428,8 +432,13 @@ async def send_admin_activity_notification(
     event_key: str = "admin.activity",
     actor_user_id: Optional[UUID] = None,
 ) -> int:
-    """Send an in-app/email event to platform admins and org admins."""
-    recipients = await list_admin_recipients(db=db, org_id=org_id, actor_user_id=actor_user_id)
+    """Send an in-app/email event with scoped admin recipients."""
+    recipients = await list_admin_recipients(
+        db=db,
+        org_id=org_id,
+        event_key=event_key,
+        actor_user_id=actor_user_id,
+    )
     for recipient in recipients:
         await send_notification_event(
             db=db,

@@ -29,6 +29,8 @@ from app.services.notification_service import send_admin_activity_notification, 
 router = APIRouter(prefix="/api/v1/organizations/{org_id}/groups", tags=["groups"])
 
 PROTECTED_ROLE_NAMES = {"org:admin", "super_admin"}
+ELEVATED_MANAGER_ROLE_NAMES = {"app:manager", "user:manager", "group:manager"}
+PROTECTED_OR_ELEVATED_ROLE_NAMES = PROTECTED_ROLE_NAMES | ELEVATED_MANAGER_ROLE_NAMES
 
 
 def _can_manage_protected_access(current_user: dict) -> bool:
@@ -169,6 +171,62 @@ async def _ensure_manager_membership_self_removal_safe(
             detail={
                 "error": "manager_group_self_removal_forbidden",
                 "error_description": "You cannot remove yourself from the last group that grants your group manager access.",
+            },
+        )
+
+
+async def _ensure_group_role_changes_safe(
+    db: AsyncSession,
+    *,
+    org_id: UUID,
+    group,
+    current_user: dict,
+    roles_to_change: list[Role],
+) -> None:
+    current_user_id = current_user.get("user_id")
+    current_user_role_names = {str(role) for role in (current_user.get("roles") or [])}
+    actor_is_org_admin = bool(current_user.get("is_super_admin") or "org:admin" in current_user_role_names)
+    target_role_names = {role.name for role in roles_to_change}
+
+    if target_role_names & PROTECTED_ROLE_NAMES and not actor_is_org_admin:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "protected_role_forbidden",
+                "error_description": "Only organization admins can assign or remove administrator roles on groups.",
+            },
+        )
+
+    if target_role_names & ELEVATED_MANAGER_ROLE_NAMES and not actor_is_org_admin:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "elevated_role_forbidden",
+                "error_description": "Only organization admins can assign or remove manager roles on groups.",
+            },
+        )
+
+    if not current_user_id:
+        return
+
+    membership_result = await db.execute(
+        select(GroupMember).where(
+            GroupMember.group_id == group.id,
+            GroupMember.user_id == current_user_id,
+        )
+    )
+    actor_membership = membership_result.scalar_one_or_none()
+    if not actor_membership:
+        return
+
+    group_roles = await get_group_roles(db, group.id)
+    group_role_names = {role.name for role in group_roles}
+    if "group:manager" in group_role_names and not actor_is_org_admin:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "self_source_group_role_change_forbidden",
+                "error_description": "You cannot change role assignments on the group that currently grants your group manager access.",
             },
         )
 
@@ -418,14 +476,13 @@ async def assign_roles_endpoint(
     group = await _get_org_group_or_404(db, org_id, group_id)
     await _ensure_group_manageable(db, current_user, group.id)
     roles = await _resolve_org_roles_or_404(db, org_id, body.role_ids)
-    if any(role.name in PROTECTED_ROLE_NAMES for role in roles) and not _can_manage_protected_access(current_user):
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "protected_role_forbidden",
-                "error_description": "Only organization admins can assign administrator roles to groups.",
-            },
-        )
+    await _ensure_group_role_changes_safe(
+        db,
+        org_id=org_id,
+        group=group,
+        current_user=current_user,
+        roles_to_change=roles,
+    )
 
     assigned = await assign_roles(db, group_id, body.role_ids)
 
@@ -472,15 +529,14 @@ async def remove_role_endpoint(
     role = await get_role(db, role_id)
     if not role or role.org_id != org_id:
         raise HTTPException(404, detail={"error": "not_found", "error_description": "Role not found"})
-    if role.name in PROTECTED_ROLE_NAMES and not _can_manage_protected_access(current_user):
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "protected_role_forbidden",
-                "error_description": "Only organization admins can remove administrator roles from groups.",
-            },
-        )
     await _ensure_group_manageable(db, current_user, group.id)
+    await _ensure_group_role_changes_safe(
+        db,
+        org_id=org_id,
+        group=group,
+        current_user=current_user,
+        roles_to_change=[role],
+    )
     success = await remove_role(db, group_id, role_id)
     if not success:
         raise HTTPException(404, detail={"error": "not_found", "error_description": "Role not assigned to group"})

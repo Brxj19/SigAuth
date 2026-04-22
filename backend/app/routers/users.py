@@ -373,12 +373,21 @@ async def reset_password_endpoint(
     user_id: UUID,
     current_user: dict = Depends(require_permission("user:reset_password")),
     db: AsyncSession = Depends(get_db),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
     """Trigger password reset email for a user."""
     user = await _get_org_user_or_404(db, org_id, user_id)
     await _ensure_target_user_manageable(db, current_user, user)
 
     await invalidate_active_reset_tokens(db, user.id)
+    user.password_reset_required = True
+    user.updated_at = datetime.now(timezone.utc)
+    jtis = await get_user_token_jtis(db, user.id)
+    await revoke_all_user_tokens(db, user.id, reason="admin_password_reset_required")
+    await revoke_all_browser_sessions_for_user(redis, str(user.id))
+    for jti in jtis:
+        await revoke_provider_session(db=db, redis=redis, jti=jti, reason="admin_password_reset_required")
+
     reset_token = generate_reset_token()
     token_record = PasswordResetToken(
         token=reset_token,

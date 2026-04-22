@@ -257,6 +257,7 @@ async def soft_delete_user(db: AsyncSession, user_id: UUID) -> Optional[User]:
     user.status = "deleted"
     user.email_verified = False
     user.must_change_password = False
+    user.password_reset_required = False
     user.invitation_expires_at = None
     user.mfa_enabled = False
     user.mfa_secret = None
@@ -290,6 +291,7 @@ async def update_password(db: AsyncSession, user_id: UUID, new_password: str) ->
         return None
     user.password_hash = hash_password(new_password)
     user.must_change_password = False
+    user.password_reset_required = False
     user.password_changed_at = datetime.now(timezone.utc)
     user.password_expires_at = user.password_changed_at + timedelta(days=settings.PASSWORD_MAX_AGE_DAYS)
     user.invitation_expires_at = None
